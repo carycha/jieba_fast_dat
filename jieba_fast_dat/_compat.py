@@ -3,10 +3,9 @@ import os
 import sys
 
 try:
-    import pkg_resources
-    get_module_res = lambda *res: pkg_resources.resource_stream(__name__,
-                                                                os.path.join(*res))
-except ImportError:
+    import importlib.resources
+    get_module_res = lambda *res: importlib.resources.files(__name__).joinpath(*res).open('rb')
+except (ImportError, AttributeError):
         get_module_res = lambda *res: open(os.path.normpath(os.path.join(
                                 os.getcwd(), os.path.dirname(__file__), *res)), 'rb')
 
