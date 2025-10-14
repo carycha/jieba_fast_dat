@@ -33,8 +33,10 @@ int _calc(py::dict FREQ, py::object sentence, py::dict DAG, py::dict route, doub
             if (!o_freq.is_none()) // Check if o_freq is not NULL
             {
                 fq = py::cast<double>(o_freq);
-                if (fq == 0) fq = 1;
+            } else {
+                fq = 1; // Default to 1 if not found, similar to Python's behavior
             }
+            if (fq == 0) fq = 1; // Still handle fq being 0
             py::tuple t_tuple = route[py::int_(x + 1)];
             double fq_2 = py::cast<double>(t_tuple[0]);
             fq_last = log(fq) - logtotal + fq_2;
@@ -95,9 +97,10 @@ int _get_DAG_and_calc(py::dict FREQ, py::object sentence, py::list route, double
         py::object frag = sentence.attr("__getitem__")(k); // Explicitly get item as py::object
         py::object t_f;
 
-        while(i < N && (t_f = FREQ.attr("get")(frag)) && (points[k] < 12))
+        while(i < N && (points[k] < 12))
         {
-            if (py::cast<py::ssize_t>(t_f))
+            t_f = FREQ.attr("get")(frag);
+            if (!t_f.is_none() && py::cast<py::ssize_t>(t_f))
             {
                 DAG[k][points[k]] = i;
                 points[k]++;
