@@ -1,4 +1,4 @@
 setuptools
 wheel
-swig
+pybind11
 pytest
