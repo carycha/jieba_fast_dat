@@ -190,7 +190,7 @@ class POSTokenizer(object):
                 if buf:
                     if len(buf) == 1:
                         yield pair(buf, self.word_tag_tab.get(buf, 'x'))
-                    elif not self.tokenizer.FREQ.get(buf):
+                    elif not jieba_fast_dat._jieba_fast_functions.get_word_frequency(buf):
                         recognized = self.__cut_detail(buf)
                         for t in recognized:
                             yield t
@@ -204,7 +204,7 @@ class POSTokenizer(object):
         if buf:
             if len(buf) == 1:
                 yield pair(buf, self.word_tag_tab.get(buf, 'x'))
-            elif not self.tokenizer.FREQ.get(buf):
+            elif not jieba_fast_dat._jieba_fast_functions.get_word_frequency(buf):
                 recognized = self.__cut_detail(buf)
                 for t in recognized:
                     yield t
