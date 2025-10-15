@@ -124,7 +124,7 @@ class JiebaTestCase(unittest.TestCase):
         print("testCutAll", file=sys.stderr)
 
     def testSetDictionary(self):
-        jieba.set_dictionary("foobar.txt")
+        jieba.set_dictionary("test/foobar.txt")
         for content in test_contents:
             result = jieba.cut(content)
             assert isinstance(result, types.GeneratorType), "Test SetDictionary Generator error"

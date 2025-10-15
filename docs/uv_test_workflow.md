@@ -35,9 +35,9 @@
     ```
 
 6.  **使用 `uv run pytest` 執行測試**
-    在 `uv` 虛擬環境中執行 `pytest`，以驗證專案的功能和 C 擴展的正確性。
+    在 `uv` 虛擬環境中執行 `pytest`，以驗證專案的功能和 C 擴展的正確性。可以使用 `-s` 旗標來顯示測試中的 `print` 輸出。
     ```bash
-    uv run pytest
+    uv run pytest -s
     ```
 
 ## 完整命令範例 (可一次性執行)
@@ -48,7 +48,7 @@ uv venv && \
 source .venv/bin/activate && \
 uv pip install -r requirements.txt && \
 uv pip install . && \
-uv run pytest
+uv run pytest -s
 ```
 
 **注意事項：**

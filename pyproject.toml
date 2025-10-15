@@ -3,6 +3,7 @@ requires = ["setuptools>=61.0", "pybind11>=2.6.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
-norecursedirs = ["test/parallel", "tmp"]
-python_files = "test_*.py"
-addopts = "--ignore test/test.txt"
+testpaths = ["test"]
+norecursedirs = ["test/parallel", "tmp", "build", ".venv", "jieba_fast_dat"]
+python_files = "*.py"
+addopts = "--ignore test/test.txt --ignore test/extract_topic.py"

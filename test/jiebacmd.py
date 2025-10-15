@@ -14,15 +14,16 @@ import jieba_fast_dat as jieba
 
 default_encoding='utf-8'
 
-if len(sys.argv)>1:
-    default_encoding = sys.argv[1]
+if __name__ == '__main__':
+    if len(sys.argv)>1:
+        default_encoding = sys.argv[1]
 
-while True:
-    line = sys.stdin.readline()
-    if line=="":
-        break
-    line = line.strip()
-    for word in jieba.cut(line):
-        print(word)
+    while True:
+        line = sys.stdin.readline()
+        if line=="":
+            break
+        line = line.strip()
+        for word in jieba.cut(line):
+            print(word)
 
 
