@@ -2,43 +2,101 @@
 
 最後更新時間: 2025-10-15
 
+### E. 進度管理與待辦事項 (Progress & To-Do)
+
+
+
+*   **TODO:**
+    *   研究與評估 CPU 優化的中文詞性標注 (POS) 功能
+    *   研究與評估 CPU 優化的中文依存句法分析器
+    *   研究與評估 CPU 優化的中文命名實體識別 (NER) 功能
+    *   研究與實現 CPU 優化的中文三元組萃取功能
+
 ### A. 專案核心目標 (Goal)
 
-1.  **核心效能優化:** 解決 `jieba_fast_dat` 首次啟動時的效能瓶頸，實現近乎瞬時的啟動速度與最低的記憶體佔用。
-2.  **功能增強:** 仿效 `cppjieba-py-dat` 的設計，實現了一個動態、持久化且能自動失效的 DAT 快取機制，以優雅地支援使用者自訂詞典。
+1.  **專注於中文文本處理:** 專案的核心目標是高效處理中文文本。
+2.  **提供高效、準確的中文分詞功能:** 作為 `jieba_fast_dat` 的核心，提供快速且精確的中文詞語切分。
+3.  **支援詞性標注功能:** 能夠對分詞結果進行詞性標注，提供更豐富的語言分析能力。
+4.  **核心效能優化:** 解決 `jieba_fast_dat` 首次啟動時的效能瓶頸，實現近乎瞬時的啟動速度與最低的記憶體佔用。
+5.  **功能增強:** 仿效 `cppjieba-py-dat` 的設計，實現了一個動態、持久化且能自動失效的 DAT 快取機制，以優雅地支援使用者自訂詞典。
+6.  **長期目標 - 知識圖譜萃取 (KGE):** 最終目標是能夠從中文文本中自動萃取實體、關係和事件，構建知識圖譜。
 
 ### B. 環境與執行者 (Context)
 
 *   **執行者:** 所有程式碼與指令由使用者在本地端執行。
-*   **開發環境:** Docker Swarm (Container 內)。
+*   **production環境:** Docker Swarm (Container 內)。
+*   **執行環境約束:** 所有計算必須在 CPU 上執行，不依賴 GPU。
 *   **核心技術棧:** Python 3.x, C++, `darts-clone`, `uv` (虛擬環境管理與套件安裝), `pybind11`, `pytest` (測試框架)。
 *   **命名規範:**
     *   **安裝名稱 (Package Name):** `jieba_fast_dat`
     *   **導入名稱 (Import Name):** `jieba_fast_dat`
 
-### F. 專案核心知識與最佳實踐 (Core Knowledge & Best Practices)
+### C. 最新狀態與規範 (Current Spec)
 
-#### F.1 核心架構與技術選型
+*   **現行版本**: `0.39` (來自 `jieba_fast_dat/__init__.py`)
+*   **關鍵參數總結**:
+    *   **預設詞典**: `dict.txt`
+    *   **分詞模式**: 精確模式、全模式、搜尋引擎模式。
+    *   **HMM**: 可選。
+    *   **快取機制**: 基於 MD5 雜湊的持久化 DAT 快取。
 
-*   **Double-Array Trie (DAT) 優勢:** DAT 使用雙陣列結構 (BASE 和 CHECK) 大幅降低記憶體佔用，結構緊湊，尤其適用於大型詞典。
-*   **Memory-Mapped Files (mmap) 優勢:** `mmap` 允許將磁碟檔案直接映射到記憶體，實現預建 DAT 快取檔案的近乎瞬時初始化。它透過按需載入來降低物理 RAM 消耗，並支援多行程共享相同的詞典資料。
-*   **DAT 與 mmap 結合效益:** `cppjieba-py-dat` 的成功實踐證明，結合 DAT 的記憶體效率和 `mmap` 的快速載入能力，是提供高效能、低記憶體中文分詞解決方案的關鍵。
-*   **持久化快取策略:** `cppjieba-py-dat` 的 DAT 快取檔案預設存放在使用者快取目錄下（例如 Linux 的 `~/.cache/cppjieba_py_dat/`），檔案名包含詞典內容的 MD5 值。這套機制是 `jieba_fast_dat` 優化的重要參考。
+### F. 知識與設計規範 (KNOWLEDGE & DESIGN)
 
-#### F.2 C++ 擴展與綁定
+#### F.1 核心算法與模型
 
-*   **C++ 綁定技術 - pybind11:** 專案已從 SWIG 遷移到 `pybind11`，以實現更現代、更 Pythonic 的 C++ 與 Python 綁定。`pybind11` 是一個輕量級的僅標頭庫，API 簡潔，能生成更慣用的 Python 程式碼。
-*   **函數可見性:** C++ 擴展中的函數必須明確地透過 `pybind11` 的 API 公開，才能在 Python 中被調用。
+*   **Double-Array Trie (DAT)**:
+    *   **實現**: 核心詞典結構，透過 `darts-clone` 庫在 C++ 中實現 (`jieba_fast_dat/source/jieba_fast_functions_pybind.cpp` 的 `JiebaDict` 類別)。
+    *   **功能**: 提供高效的詞語儲存、查詢 (`contains_word`) 和前綴匹配 (`common_prefix_search`)，是分詞詞圖構建的基礎。
+    *   **優勢**: 記憶體佔用低，查詢速度極快，適用於大型詞典。
+*   **Viterbi 算法**:
+    *   **分詞**: 在 C++ 層實現 (`_calc`, `_get_DAG_and_calc` 函數)，用於在詞圖 (DAG) 上尋找最佳詞語路徑，實現精確分詞。
+    *   **詞性標注**: 在 C++ 層實現 (`_viterbi` 函數)，基於隱馬爾可夫模型 (HMM) 進行詞性標注，程式碼中暗示使用 BEMS (Begin, Middle, End, Single) 狀態。
+*   **TF-IDF (Term Frequency-Inverse Document Frequency)**:
+    *   **實現**: Python 層 (`jieba_fast_dat/analyse/tfidf.py` 的 `TFIDF` 類別)。
+    *   **功能**: 根據詞語在文檔中的頻率和在語料庫中的稀有程度，評估詞語的重要性，用於關鍵詞提取。
+*   **TextRank**:
+    *   **實現**: Python 層 (`jieba_fast_dat/analyse/textrank.py` 的 `TextRank` 類別)。
+    *   **功能**: 一種基於圖的排序算法，透過詞語共現關係構建圖，提取關鍵詞。
 
-#### F.3 Jieba_fast_dat 實作細節
+#### F.2 核心功能實現
 
-*   **DAT 模型的限制:** 採用 DAT 快取機制不支援執行時動態詞語新增 (`add_word`, `del_word`)。這些操作應被視為無操作 (no-op)。
-*   **使用者詞典載入:** `load_userdict` 應透過觸發主詞典的重新初始化來載入用戶詞典，以符合 DAT 的不可變特性。
-*   **複合詞處理:** 對於應被視為單一詞語的複合詞彙（如 `easy_install`），需要將其明確添加到使用者詞典中，分詞器才能正確識別。
-*   **內部 API 變更:** 當底層 API (如 `get_word_frequency`) 發生變化時，所有依賴於舊實現的模塊都需要同步更新。
-*   **處理棄用警告:** 應積極處理 `pkg_resources` 等棄用模組的警告，並遷移到如 `importlib.resources` 的現代替代方案，以確保專案的長期穩定性。
+*   **中文分詞 (Chinese Word Segmentation)**:
+    *   **入口**: `jieba_fast_dat/__init__.py` 中的 `Tokenizer.cut` 方法。
+    *   **模式**: 支援精確模式、全模式和搜尋引擎模式。
+    *   **HMM**: 可選，用於提高分詞準確性，尤其是在處理未登錄詞時。
+    *   **並行處理**: 支援使用 `multiprocessing.Pool` 進行並行分詞，提高處理大量文本的效率。
+*   **詞性標注 (Part-of-Speech Tagging)**:
+    *   **實現**: 透過 `jieba_fast_dat/posseg` 模組，並在 `jieba_fast_dat/__init__.py` 中整合，底層由 C++ 加速的 Viterbi 算法驅動。
+*   **關鍵詞提取 (Keyword Extraction)**:
+    *   提供基於 TF-IDF 和 TextRank 兩種算法的關鍵詞提取功能。
+*   **使用者詞典管理**:
+    *   `load_userdict`: 支援載入使用者自訂詞典，會觸發主詞典的重新初始化以適應 DAT 的不可變特性。
+    *   `add_word`, `del_word`, `suggest_freq`: 目前在 Python 層為空操作 (no-op)，反映 DAT 不支援執行時動態詞語增刪的特性。
+*   **持久化快取 (Persistent Caching)**:
+    *   **機制**: 在 `Tokenizer.initialize` 中實現，使用詞典內容的 MD5 雜湊生成唯一的快取檔案路徑。
+    *   **流程**: 優先從 `.trie` 和 `.freq` 快取檔案載入 DAT 詞典。若快取不存在或失效，則從原始詞典檔案載入，並在成功後將 DAT 序列化並儲存到快取中。
+    *   **效益**: 顯著加速後續詞典載入，降低啟動延遲，並透過 MD5 確保快取一致性。
 
-#### F.4 測試與品質保證 (Testing & QA)
+#### F.3 技術棧與最佳實踐
+
+*   **C++ 與 `pybind11` 綁定**:
+    *   **目的**: 將 C++ 實現的高效能算法 (DAT 構建、Viterbi 算法) 無縫暴露給 Python，結合兩者優勢。
+    *   **遷移**: 已從 SWIG 遷移至 `pybind11`，提供更現代、Pythonic 的接口。
+*   **Memory-Mapped Files (mmap)**:
+    *   **應用**: C++ 層的 `Darts::DoubleArray::save` 和 `Darts::DoubleArray::open` 方法可能利用 `mmap` 或類似機制，實現高效的 DAT 檔案 I/O，確保快速載入和低記憶體消耗。
+*   **MD5 雜湊**:
+    *   **應用**: `get_cache_file_path` 函數使用詞典檔案內容的 MD5 雜湊值來生成唯一的快取檔案名，確保快取失效機制。
+*   **多執行緒安全**:
+    *   `jieba_fast_dat/__init__.py` 中的 `Tokenizer` 類別使用 `threading.RLock` 保護詞典初始化過程，確保多執行緒環境下的穩定性。
+*   **依賴管理與測試**:
+    *   **`uv`**: 用於高性能的虛擬環境管理和套件安裝。
+    *   **`pytest`**: 統一的測試框架，確保程式碼品質和功能正確性。
+    *   **測試流程**: 強制每次測試前重新編譯 C++ 擴展 (`uv pip install . --force-reinstall`)，確保測試基於最新代碼。
+*   **正規表達式 (Regular Expressions)**:
+    *   廣泛用於文本預處理和分塊，例如在 `Tokenizer.cut` 中分割不同類型的文本區塊。
+*   **CPU 優先原則**: 所有算法和庫的選擇都必須符合 CPU 執行效率，避免引入對 GPU 的依賴，以確保專案在 CPU 環境下的高效運行。
+
+#### F.4 統一測試流程與知識 (Unified Testing Protocol)
 
 *   **統一測試框架 - pytest:** 專案統一使用 `pytest` 作為測試框架，以利用其豐富功能、易用斷言和插件生態系統。
 *   **測試執行流程:**
@@ -50,17 +108,28 @@
 *   **腳本轉測試:** 獨立運行的腳本若要納入 `pytest`，需將其邏輯包裝在 `test_` 函數中，並移除對 `sys.argv` 等外部輸入的依賴。
 *   **避免副作用:** 測試文件中的頂層可執行代碼（如 `sys.exit()`, `sys.stdin` 讀取）或 `setup()` 調用，都應包裹在 `if __name__ == '__main__':` 塊中，以防止在 `pytest` 導入時意外執行。
 
-#### F.5 專案配置與管理
+#### F.5 快取機制實作與驗證
 
-*   **依賴管理 - uv:** 專案採用 `uv` 進行虛擬環境管理與套件安裝，以利用其高性能和簡潔性。所有依賴由 `requirements.txt` 集中管理。
-*   **命名一致性:** 保持套件名稱 (`jieba_fast_dat`)、導入名稱和目錄結構的一致性，對於專案的長期維護至關重要。
-*   **精確配置 pytest 收集範圍:**
-    *   `testpaths`: 將此選項設置為 `["test"]`，將測試收集限制在指定目錄。
-    *   `norecursedirs`: 用於排除 `build`, `.venv`, `jieba_fast_dat` 等非測試目錄，避免模組導入衝突。
-    *   `--ignore`: 用於精確排除特定檔案（如 `test/test.txt` 或有未滿足依賴的腳本），避免 `UnicodeDecodeError` 或 `ModuleNotFoundError`。
-*   **處理正則表達式警告:** 在 Python 中定義正則表達式時，應使用原始字串 (raw string, e.g., `r'\s'`)，以避免 `SyntaxWarning: invalid escape sequence` 警告和潛在的轉義錯誤。
+*   **Python 快取邏輯整合**:
+    *   在 `jieba_fast_dat/__init__.py` 中實作 `get_cache_file_path` 函數，利用詞典內容的 MD5 雜湊生成唯一的快取檔案路徑，並負責快取目錄的建立。
+    *   修改 `Tokenizer.initialize` 方法，實現 DAT 詞典的快取載入與儲存機制。優先從快取載入，若快取不存在或失效，則從原始詞典檔案載入並儲存至快取。
+    *   引入 `hashlib` 模組以支援 MD5 雜湊計算。
+    *   在關鍵流程點（詞典載入、快取操作）增加偵錯日誌，記錄詞彙量與時間，以便追蹤與效能分析。
+*   **C++ 擴展與套件更新**:
+    *   確保 C++ 擴展在 Python 更改後重新編譯並重新安裝套件 (`uv pip install . --force-reinstall`)，以應用最新的功能。
+*   **快取功能測試**:
+    *   建立 `test/test_mmap_cache.py` 測試檔案，涵蓋快取檔案建立、載入速度、失效機制及分詞正確性等方面的驗證。
+    *   透過 `pytest -s` 執行測試，確保快取機制的穩定性與正確性。
 
-### D. 協作日誌與決策總結 (Key Decisions & Logs)
+### H. 主要技術債與風險 (Tech Debt & Risks)
+
+*   **潛在的 `mmap` 實現細節**: 雖然 `Darts::DoubleArray::save` 和 `open` 可能利用 `mmap`，但具體實現細節仍需進一步確認，以確保最佳效能和跨平台兼容性。
+*   **使用者詞典動態增刪的限制**: DAT 結構的不可變特性導致 `add_word` 和 `del_word` 成為空操作，這可能限制了某些需要頻繁動態更新詞典的應用場景。
+*   **首次載入大型詞典的初始化時間**: 儘管快取機制旨在緩解此問題，但首次載入大型詞典時仍存在初始化時間瓶頸。
+*   **Python 2 兼容性移除的影響**: 雖然決策是專注於 Python 3，但對於仍在使用 Python 2 的潛在用戶，這可能是一個遷移成本。
+*   **Windows 平台支援的移除**: 同樣，這可能限制了在 Windows 環境下使用的便利性。
+
+### D. 協作日誌與歷史決策總結 (Key Decisions & Logs)
 
 *   **問題:** 專案同時支援 Python 2 和 Windows，增加了維護複雜性。
 *   **決策:** 移除對 Python 2 和 Windows 的支援，專注於 Python 3 (Linux/macOS)。
@@ -80,58 +149,3 @@
 *   **決策:** 重新實現 `load_userdict` 以觸發字典重新初始化，並將不支援的操作改為無操作。
 *   **問題:** 需要驗證字典初始化和快取載入的速度。
 *   **決策:** 新增 `test/test_dict_speed.py` 效能測試腳本。
-*   **問題:** `jieba_fast_dat` 的 DAT 實現是記憶體內的，效能有待提升。
-*   **決策:** 分析 `cppjieba-py-dat` 的 `mmap` 和持久化快取實現，作為後續優化的藍圖。
-
-### E. 進度管理與待辦事項 (Progress & To-Do)
-
-*   **DONE:**
-    *   **專案現代化:** 成功移除 Python 2 和 Windows 支援，並將 C++ 綁定從 SWIG 遷移至 `pybind11`。
-    *   **工具鏈統一:** 全面採用 `uv` 進行環境管理，並使用 `pytest` 作為唯一的測試框架。
-    *   **測試重構:** 完成了對 `test/` 目錄的全面重構，解決了 `pytest` 的收集與執行問題，並確保所有測試通過。
-    *   **功能對齊:** 調整了用戶詞典相關 API (`load_userdict`) 以適應 DAT 模型，並新增了效能測試。
-
-    *   **階段 1: C++ 層 - 實作 DAT 序列化/反序列化**
-        *   **步驟 1.1: 在 C++ 中實作 `JiebaDict::save_dat`:**
-            *   修改 `jieba_fast_functions_pybind.cpp`，向 `JiebaDict` 添加 `save_dat` 方法。
-            *   此方法將接收一個 `cache_path` 字串。
-            *   呼叫 `trie.save(cache_path + ".trie")` 儲存 Double-Array Trie。
-            *   將詞頻 (`freq_map`) 序列化到 `cache_path + ".freq"`。
-            *   返回一個布林值表示成功/失敗。
-        *   **步驟 1.2: 在 C++ 中實作 `JiebaDict::open_dat`:**
-            *   修改 `jieba_fast_functions_pybind.cpp`，向 `JiebaDict` 添加 `open_dat` 方法。
-            *   此方法將接收一個 `cache_path` 字串。
-            *   呼叫 `trie.open(cache_path + ".trie")` 載入 Double-Array Trie。
-            *   從 `cache_path + ".freq"` 反序列化詞頻 (`freq_map`)。
-            *   返回一個布林值表示成功/失敗。
-        *   **步驟 1.3: 透過 `pybind11` 將 `save_dat` 和 `open_dat` 公開給 Python。**
-            *   修改 `jieba_fast_functions_pybind.cpp`，添加 `save_dat` 和 `open_dat` 的綁定。
-        *   **步驟 1.4: 重新編譯 C++ 擴展並重新安裝套件。**
-            *   執行 `uv pip install . --force-reinstall` 以應用 C++ 更改。
-
-    *   **階段 2: Python 整合快取邏輯**
-        *   **步驟 2.1: 在 Python 中實作 `get_cache_file_path`:**
-            *   修改 `jieba_fast_dat/__init__.py`，添加 `get_cache_file_path(dict_path)`。
-            *   此函數將根據 `dict_path` 內容的 MD5 雜湊生成唯一的快取檔案路徑。
-            *   如果快取目錄不存在，它將建立快取目錄。
-        *   **步驟 2.2: 修改 `Tokenizer.initialize` 以進行快取載入/儲存 (並增加偵錯日誌):**
-            *   修改 `jieba_fast_dat/__init__.py` 中的 `initialize` 方法。
-            *   在呼叫 `_jieba_fast_functions.load_dict` 之前，使用 `get_cache_file_path` 檢查快取是否存在。
-            *   如果快取存在，嘗試使用 `_jieba_fast_functions.open_dat` 載入。如果成功，設定 `self.initialized = True` 並返回。
-            *   如果快取不存在或載入失敗，則繼續執行 `_jieba_fast_functions.load_dict`。
-            *   在成功執行 `_jieba_fast_functions.load_dict` 之後，呼叫 `_jieba_fast_functions.save_dat` 以將新建立的 DAT 儲存到快取。
-            *   將 `import hashlib` 添加到 `jieba_fast_dat/__init__.py`。
-            *   **增加偵錯日誌:** 在關鍵點（例如：開始載入詞典、嘗試從快取載入、快取載入成功/失敗、建立快取、快取檔案路徑等）添加 `default_logger.debug` 訊息，以追蹤流程和檔案路徑。**特別是，記錄詞彙量和花費時間。**
-        *   **步驟 2.3: 重新編譯 C++ 擴展並重新安裝套件。**
-            *   執行 `uv pip install . --force-reinstall` 以應用 Python 更改（並確保 C++ 是最新的）。
-
-    *   **階段 3: 測試**
-        *   **步驟 3.1: 建立/修改 `test_mmap_cache.py`:**
-            *   建立一個新的測試檔案 `test/test_mmap_cache.py` (或修改如果它存在於之前的嘗試中)。
-            *   添加測試以：
-                *   驗證快取檔案建立。
-                *   驗證快取載入速度。
-                *   驗證快取失效 (如果詞典內容更改)。
-                *   驗證從快取載入後分詞的正確性。
-        *   **步驟 3.2: 執行測試。**
-            *   執行 `pytest -s` 以驗證實作。
