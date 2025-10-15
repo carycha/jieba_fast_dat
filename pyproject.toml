@@ -1,3 +1,8 @@
 [build-system]
 requires = ["setuptools>=61.0", "pybind11>=2.6.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+norecursedirs = ["test/parallel", "tmp"]
+python_files = "test_*.py"
+addopts = "--ignore test/test.txt"

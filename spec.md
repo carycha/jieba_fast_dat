@@ -161,6 +161,22 @@
 *   **決策:** 已在 `test/test_segmentation_pos.py` 中增加新的測試案例，包含中文、英文單字和數字，並細化了詞性標注的斷言，以確保這些混合文本能夠被正確處理。
 *   **知識/教訓:** 擴展測試案例以覆蓋更多輸入類型（如混合語言和數字）是確保軟體魯棒性和正確性的關鍵步驟，特別是在處理多語言文本的自然語言處理工具中。
 
+*   **問題:** 執行 `pytest` 時，`test/test_lock.py` 由於字典檔案路徑問題導致 `FileNotFoundError`。
+*   **決策:** 修改 `test/test_lock.py`，使用 `os.path` 動態建構字典檔案的絕對路徑，避免硬編碼。
+*   **知識/教訓:** 在測試腳本中處理檔案路徑時，應避免使用相對路徑，尤其是在 `pytest` 等測試框架中，因為執行環境的工作目錄可能不固定。使用 `os.path` 動態建構絕對路徑能提高測試的魯棒性。
+
+*   **問題:** 執行 `pytest` 時，`test/test_file.py`, `test/test_pos_file.py`, `test/test_whoosh_file.py` 由於嘗試存取 `sys.argv[1]` 而導致 `IndexError`。
+*   **決策:** 將這些腳本重構為符合 `pytest` 規範的測試函數，並為其提供預設的測試資料檔案 (`test/test.txt`)，移除對命令列參數的依賴。
+*   **知識/教訓:** 獨立運行的腳本若要納入 `pytest` 測試框架，需要將其邏輯包裝在 `test_` 開頭的函數中，並處理其對外部輸入（如命令列參數）的依賴，改為使用測試內部可控的資料。
+
+*   **問題:** `pytest` 嘗試收集非 Python 測試檔案 `test/test.txt`，導致 `UnicodeDecodeError`。
+*   **決策:** 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中使用 `addopts = "--ignore test/test.txt"` 選項，明確指示 `pytest` 忽略此檔案。
+*   **知識/教訓:** 當 `pytest` 的預設收集規則（如 `python_files` 或 `norecursedirs`）無法有效排除特定檔案時，可以使用 `addopts` 選項結合 `--ignore` 參數進行精確排除。
+
+*   **問題:** 執行 `pytest` 時，出現 `import file mismatch` 錯誤，因為 `test/` 和 `test/parallel/` 目錄下存在同名測試檔案。
+*   **決策:** 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中使用 `norecursedirs = ["test/parallel", "tmp"]` 選項，明確指示 `pytest` 忽略 `test/parallel` 目錄。
+*   **知識/教訓:** 避免在不同目錄中存在同名但內容不同的測試檔案，這會導致 `pytest` 的模組導入衝突。使用 `norecursedirs` 可以有效管理測試收集範圍。
+
 ### E. 進度管理與待辦事項 (Progress & To-Do)
 
 *   **DONE:**
@@ -192,6 +208,10 @@
     *   將 `test/` 目錄下的所有測試遷移到 `pytest` 框架。
     *   確保所有測試都能被 `pytest` 發現並正確執行。
     *   更新測試執行指令和相關文件，以反映 `pytest` 的使用。
+    *   修正 `test/test_lock.py` 中的 `FileNotFoundError`。
+    *   重構 `test/test_file.py`, `test/test_pos_file.py`, `test/test_whoosh_file.py` 以符合 `pytest` 規範。
+    *   解決 `test/test.txt` 導致的 `UnicodeDecodeError`。
+    *   解決 `pytest` 收集時的 `import file mismatch` 錯誤。
 *   **TODO:**
     *   较低内存占用: 使用 Double-Array Trie (DAT) 替换原版 Jieba 的内存 Trie，大幅降低词典加载内存
     *   快速加载: 利用 mmap 加载预先构建的 DAT 缓存文件，实现近乎瞬时的初始化（非首次运行）。
