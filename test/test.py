@@ -1,7 +1,7 @@
 #encoding=utf-8
 import sys
 sys.path.append("../")
-import jieba
+import jieba_fast_dat as jieba
 
 
 def cuttest(test_sent):

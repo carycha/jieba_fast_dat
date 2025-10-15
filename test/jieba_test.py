@@ -4,9 +4,8 @@ import sys
 sys.path.append("../")
 import unittest
 import types
-import jieba
-if sys.version_info[0] > 2:
-    from imp import reload
+import jieba_fast_dat as jieba
+from importlib import reload
 
 jieba.initialize()
 
@@ -144,7 +143,7 @@ class JiebaTestCase(unittest.TestCase):
         print("testCutForSearch", file=sys.stderr)
 
     def testPosseg(self):
-        import jieba.posseg as pseg
+        import jieba_fast_dat.posseg as pseg
         for content in test_contents:
             result = pseg.cut(content)
             assert isinstance(result, types.GeneratorType), "Test Posseg Generator error"
@@ -173,7 +172,7 @@ class JiebaTestCase(unittest.TestCase):
         print("testDefaultCut_NOHMM", file=sys.stderr)
 
     def testPosseg_NOHMM(self):
-        import jieba.posseg as pseg
+        import jieba_fast_dat.posseg as pseg
         for content in test_contents:
             result = pseg.cut(content,HMM=False)
             assert isinstance(result, types.GeneratorType), "Test Posseg Generator error"

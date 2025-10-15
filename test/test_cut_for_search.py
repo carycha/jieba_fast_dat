@@ -2,7 +2,7 @@
 from __future__ import print_function
 import sys
 sys.path.append("../")
-import jieba
+import jieba_fast_dat as jieba
 
 def cuttest(test_sent):
     result = jieba.cut_for_search(test_sent)

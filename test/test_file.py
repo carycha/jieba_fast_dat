@@ -1,7 +1,7 @@
 import time
 import sys
 sys.path.append("../")
-import jieba
+import jieba_fast_dat as jieba
 jieba.initialize()
 
 url = sys.argv[1]

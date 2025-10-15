@@ -3,9 +3,9 @@ from __future__ import unicode_literals
 import sys
 sys.path.append("../")
 
-import jieba
-import jieba.posseg
-import jieba.analyse
+import jieba_fast_dat as jieba
+import jieba_fast_dat.posseg
+import jieba_fast_dat.analyse
 
 print('='*40)
 print('1. 分词')

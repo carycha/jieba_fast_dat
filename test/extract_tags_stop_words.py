@@ -1,8 +1,8 @@
 import sys
 sys.path.append('../')
 
-import jieba
-import jieba.analyse
+import jieba_fast_dat as jieba
+import jieba_fast_dat.analyse
 from optparse import OptionParser
 
 USAGE = "usage:    python extract_tags_stop_words.py [file name] -k [top k]"

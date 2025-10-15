@@ -2,8 +2,8 @@ from __future__ import print_function
 import sys,time
 import sys
 sys.path.append("../../")
-import jieba
-import jieba.posseg as pseg
+import jieba_fast_dat as jieba
+import jieba_fast_dat.posseg as pseg
 
 jieba.enable_parallel(4)
 

@@ -1,7 +1,7 @@
 import sys
 import time
 sys.path.append("../../")
-import jieba
+import jieba_fast_dat as jieba
 
 jieba.enable_parallel()
 

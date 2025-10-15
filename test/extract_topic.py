@@ -4,7 +4,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn import decomposition
 
-import jieba
+import jieba_fast_dat as jieba
 import time
 import glob
 import sys

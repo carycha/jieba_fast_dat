@@ -2,9 +2,9 @@ from __future__ import print_function
 import sys
 import time
 sys.path.append("../")
-import jieba
+import jieba_fast_dat as jieba
 jieba.initialize()
-import jieba.posseg as pseg
+import jieba_fast_dat.posseg as pseg
 
 url = sys.argv[1]
 content = open(url,"rb").read()

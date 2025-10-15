@@ -59,8 +59,8 @@ class IDFLoader(object):
 class TFIDF(KeywordExtractor):
 
     def __init__(self, idf_path=None):
-        self.tokenizer = jieba_fast.dt
-        self.postokenizer = jieba_fast.posseg.dt
+        self.tokenizer = jieba_fast_dat.dt
+        self.postokenizer = jieba_fast_dat.posseg.dt
         self.stop_words = self.STOP_WORDS.copy()
         self.idf_loader = IDFLoader(idf_path or DEFAULT_IDF)
         self.idf_freq, self.median_idf = self.idf_loader.get_idf()

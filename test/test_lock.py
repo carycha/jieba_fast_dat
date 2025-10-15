@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import jieba
+import jieba_fast_dat as jieba
 import threading
 
 def inittokenizer(tokenizer, group):

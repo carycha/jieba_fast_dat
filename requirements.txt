@@ -2,3 +2,5 @@ setuptools
 wheel
 pybind11
 pytest
+whoosh
+psutil

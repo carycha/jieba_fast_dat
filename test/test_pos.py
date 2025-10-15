@@ -2,7 +2,7 @@
 from __future__ import print_function
 import sys
 sys.path.append("../")
-import jieba.posseg as pseg
+import jieba_fast_dat.posseg as pseg
 
 def cuttest(test_sent):
     result = pseg.cut(test_sent)

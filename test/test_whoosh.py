@@ -6,7 +6,7 @@ from whoosh.index import create_in,open_dir
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
 
-from jieba.analyse import ChineseAnalyzer
+from jieba_fast_dat.analyse import ChineseAnalyzer
 
 analyzer = ChineseAnalyzer()
 

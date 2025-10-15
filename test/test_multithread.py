@@ -3,7 +3,7 @@ import sys
 import threading
 sys.path.append("../")
 
-import jieba
+import jieba_fast_dat as jieba
 
 class Worker(threading.Thread):
     def run(self):

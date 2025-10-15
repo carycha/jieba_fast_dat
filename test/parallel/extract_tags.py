@@ -1,9 +1,9 @@
 import sys
 sys.path.append('../../')
 
-import jieba
+import jieba_fast_dat as jieba
 jieba.enable_parallel(4)
-import jieba.analyse
+import jieba_fast_dat.analyse
 from optparse import OptionParser
 
 USAGE ="usage:    python extract_tags.py [file name] -k [top k]"

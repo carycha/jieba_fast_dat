@@ -2,7 +2,7 @@
 from __future__ import print_function
 import sys
 sys.path.append("../../")
-import jieba
+import jieba_fast_dat as jieba
 jieba.enable_parallel(4)
 
 def cuttest(test_sent):
