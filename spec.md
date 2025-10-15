@@ -18,172 +18,120 @@
 
 ### F. 專案核心知識與最佳實踐 (Core Knowledge & Best Practices)
 
-*   **Double-Array Trie (DAT) 優勢:**
-    *   **記憶體效率:** 相較於傳統 Trie，DAT 使用雙陣列結構 (BASE 和 CHECK) 大幅降低記憶體佔用，尤其適用於大型詞典，可將數百 MB 的詞典壓縮至數 MB。
-    *   **緊湊性:** DAT 結構緊湊，適合記憶體受限的環境。
-*   **Memory-Mapped Files (mmap) 優勢:**
-    *   **快速載入:** 允許將磁碟檔案直接映射到記憶體，實現預建 DAT 快取檔案的近乎瞬時初始化，因為資料是按需載入而非一次性載入。
-    *   **降低 RAM 使用:** 將檔案直接映射到虛擬位址空間，減少實際物理 RAM 消耗。
-    *   **多行程共享:** 支援多個行程共享相同的詞典資料，進一步優化多行程環境下的記憶體使用。
-*   **DAT 與 mmap 結合效益:** `cppjieba-py-dat` 透過結合 DAT 的記憶體效率和 `mmap` 的快速載入及記憶體共享能力，提供了高效能、低記憶體的中文分詞解決方案。
-*   **限制:** 採用 DAT 快取機制通常不支援執行時動態詞語新增；詞典更新通常需要重建 DAT 快取。
-*   **依賴管理與虛擬環境:** 專案已採用 `uv` 進行虛擬環境管理與套件安裝，並透過 `requirements.txt` 集中管理依賴。`requirements.txt` 中包含了 `setuptools`, `wheel`, `pybind11` 及 `pytest`。開發環境指南 (`README.md`) 已更新以反映 `uv` 的使用方式和最新的環境要求。
-*   **C++ 綁定技術:** 已成功從 SWIG 遷移到 `pybind11`，實現了更現代、更 Pythonic 的 C++ 與 Python 綁定。`pybind11` 提供了更簡潔的 API 和更好的類型轉換機制，提升了開發效率和程式碼品質。
-*   **測試流程:** 已統一使用 `pytest` 作為專案的測試框架，並確保 `test/` 目錄下的所有測試都能被 `pytest` 發現和正確執行。目前所有測試均已通過。測試執行指令和相關文件已更新。
-    *   **執行所有測試:** 使用 `uv run pytest` 命令執行所有測試。
-    *   **查看詳細輸出:** 若要查看測試中 `print` 語句的詳細輸出，請使用 `uv run pytest -s` 命令。
-    *   **將輸出保存到文件:** 若要將所有測試輸出（包括 `print` 語句）保存到文件以供肉眼確認，請使用 `uv run pytest -s > pytest.txt` 命令，輸出將保存到 `pytest.txt` 文件中。
-    *   **為確保測試始終反映最新的 C++ 擴展模組修改，每次執行測試前，會強制執行 `uv pip install . --force-reinstall` 命令，以確保所有 C++ 擴展模組都已重新編譯並安裝。**
+#### F.1 核心架構與技術選型
+
+*   **Double-Array Trie (DAT) 優勢:** DAT 使用雙陣列結構 (BASE 和 CHECK) 大幅降低記憶體佔用，結構緊湊，尤其適用於大型詞典。
+*   **Memory-Mapped Files (mmap) 優勢:** `mmap` 允許將磁碟檔案直接映射到記憶體，實現預建 DAT 快取檔案的近乎瞬時初始化。它透過按需載入來降低物理 RAM 消耗，並支援多行程共享相同的詞典資料。
+*   **DAT 與 mmap 結合效益:** `cppjieba-py-dat` 的成功實踐證明，結合 DAT 的記憶體效率和 `mmap` 的快速載入能力，是提供高效能、低記憶體中文分詞解決方案的關鍵。
+*   **持久化快取策略:** `cppjieba-py-dat` 的 DAT 快取檔案預設存放在使用者快取目錄下（例如 Linux 的 `~/.cache/cppjieba_py_dat/`），檔案名包含詞典內容的 MD5 值。這套機制是 `jieba_fast_dat` 優化的重要參考。
+
+#### F.2 C++ 擴展與綁定
+
+*   **C++ 綁定技術 - pybind11:** 專案已從 SWIG 遷移到 `pybind11`，以實現更現代、更 Pythonic 的 C++ 與 Python 綁定。`pybind11` 是一個輕量級的僅標頭庫，API 簡潔，能生成更慣用的 Python 程式碼。
+*   **函數可見性:** C++ 擴展中的函數必須明確地透過 `pybind11` 的 API 公開，才能在 Python 中被調用。
+
+#### F.3 Jieba_fast_dat 實作細節
+
+*   **DAT 模型的限制:** 採用 DAT 快取機制不支援執行時動態詞語新增 (`add_word`, `del_word`)。這些操作應被視為無操作 (no-op)。
+*   **使用者詞典載入:** `load_userdict` 應透過觸發主詞典的重新初始化來載入用戶詞典，以符合 DAT 的不可變特性。
+*   **複合詞處理:** 對於應被視為單一詞語的複合詞彙（如 `easy_install`），需要將其明確添加到使用者詞典中，分詞器才能正確識別。
+*   **內部 API 變更:** 當底層 API (如 `get_word_frequency`) 發生變化時，所有依賴於舊實現的模塊都需要同步更新。
+*   **處理棄用警告:** 應積極處理 `pkg_resources` 等棄用模組的警告，並遷移到如 `importlib.resources` 的現代替代方案，以確保專案的長期穩定性。
+
+#### F.4 測試與品質保證 (Testing & QA)
+
+*   **統一測試框架 - pytest:** 專案統一使用 `pytest` 作為測試框架，以利用其豐富功能、易用斷言和插件生態系統。
+*   **測試執行流程:**
+    *   **強制重新編譯:** 每次執行測試前，強制執行 `uv pip install . --force-reinstall`，確保測試基於最新的 C++ 擴展模組，避免因編譯產物過時導致的錯誤。
+    *   **執行指令:** 使用 `uv run pytest` 執行所有測試。使用 `-s` 參數可查看 `print` 輸出。
+*   **測試覆蓋率:** 擴展測試案例以覆蓋更多輸入類型（如混合語言和數字）是確保 NLP 工具魯棒性的關鍵。
+*   **效能測試:** 透過精確的計時測試（如 `test/test_dict_speed.py`）來驗證和基準化效能優化，是確保專案目標達成的重要手段。
+*   **處理檔案路徑:** 在測試腳本中應避免使用相對路徑。使用 `os.path` 動態建構絕對路徑可以提高測試在不同執行環境下的魯棒性。
+*   **腳本轉測試:** 獨立運行的腳本若要納入 `pytest`，需將其邏輯包裝在 `test_` 函數中，並移除對 `sys.argv` 等外部輸入的依賴。
+*   **避免副作用:** 測試文件中的頂層可執行代碼（如 `sys.exit()`, `sys.stdin` 讀取）或 `setup()` 調用，都應包裹在 `if __name__ == '__main__':` 塊中，以防止在 `pytest` 導入時意外執行。
+
+#### F.5 專案配置與管理
+
+*   **依賴管理 - uv:** 專案採用 `uv` 進行虛擬環境管理與套件安裝，以利用其高性能和簡潔性。所有依賴由 `requirements.txt` 集中管理。
+*   **命名一致性:** 保持套件名稱 (`jieba_fast_dat`)、導入名稱和目錄結構的一致性，對於專案的長期維護至關重要。
+*   **精確配置 pytest 收集範圍:**
+    *   `testpaths`: 將此選項設置為 `["test"]`，將測試收集限制在指定目錄。
+    *   `norecursedirs`: 用於排除 `build`, `.venv`, `jieba_fast_dat` 等非測試目錄，避免模組導入衝突。
+    *   `--ignore`: 用於精確排除特定檔案（如 `test/test.txt` 或有未滿足依賴的腳本），避免 `UnicodeDecodeError` 或 `ModuleNotFoundError`。
+*   **處理正則表達式警告:** 在 Python 中定義正則表達式時，應使用原始字串 (raw string, e.g., `r'\s'`)，以避免 `SyntaxWarning: invalid escape sequence` 警告和潛在的轉義錯誤。
 
 ### D. 協作日誌與決策總結 (Key Decisions & Logs)
 
-*   **問題:** 專案目前支援 Python 2 和 Windows，增加了維護複雜性並限制了對現代 Python 特性和工具的利用。
-*   **決策:** 移除對 Python 2 和 Windows 的支援，專注於 Python 3 (Linux/macOS) 環境，以簡化開發、提高效率並利用最新技術。
-*   **知識/教訓:** 移除舊版支援有助於專案的現代化和長期可維護性。
-*   **問題:** 專案的套件名稱和導入名稱與實際的專案目錄結構 `jieba_fast_dat` 不一致，可能導致混淆。
-*   **決策:** 將套件名稱和導入名稱統一改為 `jieba_fast_dat`，以提高專案的一致性和可維護性。
-*   **知識/教訓:** 保持專案命名的一致性對於長期維護和新開發者的上手至關重要。
-*   **問題:** 需要一個高效且現代化的工具來管理 Python 套件安裝和虛擬環境。
-*   **決策:** 採用 `uv` 作為套件管理和虛擬環境建立工具，以其高性能和簡潔性提升開發體驗。
-*   **知識/教訓:** `uv` 能夠顯著加速依賴解析和安裝過程，並提供輕量級的虛擬環境管理。
-*   **問題:** 專案目前使用 SWIG 進行 C++ 與 Python 的綁定，但 `pybind11` 提供了更現代、更 Pythonic 的綁定方式，且通常具有更好的性能和更低的學習曲線。
-*   **決策:** 將 C++ 綁定技術從 SWIG 遷移到 `pybind11`，以提升開發效率、程式碼品質和維護性。
-*   **知識/教訓:** `pybind11` 是一個輕量級的僅標頭庫，用於在 C++11 和 Python 之間創建互操作性，它比 SWIG 更容易使用，並生成更慣用的 Python 程式碼。
-*   **問題:** 專案的測試分散且可能沒有統一的測試框架，導致測試管理和執行效率低下。
-*   **決策:** 統一使用 `pytest` 作為專案的測試框架，並確保 `test/` 目錄下的所有測試都能被 `pytest` 發現和執行。
-*   **知識/教訓:** `pytest` 提供了豐富的功能、易於使用的斷言和插件生態系統，有助於提高測試效率和程式碼品質。
-*   **問題:** 執行 `test/test_segmentation_pos.py` 測試時，出現 `pkg_resources` 模組已棄用的警告。
-*   **決策:** 測試成功通過，並已將 `pkg_resources` 替換為 `importlib.resources`，成功解決棄用警告。
-*   **知識/教訓:** 即使測試通過，也應關注並解決警告，特別是關於棄用模組的警告，以避免未來潛在的問題。
-
-*   **問題:** 為了確保測試始終反映最新的 C++ 擴展模組修改，避免因忘記重新編譯而導致的錯誤。
-*   **決策:** 每次執行測試前，強制執行 `uv pip install . --force-reinstall` 命令，以確保所有 C++ 擴展模組都已重新編譯並安裝。
-*   **知識/教訓:** 雖然這會增加測試時間，但能有效避免因編譯產物過時導致的潛在問題，確保測試結果的準確性。
-
-*   **問題:** 執行測試時，出現多個 `SyntaxWarning: invalid escape sequence` 警告，主要集中在正則表達式中。
-*   **決策:** 這些警告表明正則表達式字串中的反斜杠可能被 Python 解釋器錯誤處理，應將其轉換為原始字串 (raw string)。
-*   **知識/教訓:** 在 Python 中定義正則表達式時，使用原始字串 (例如 `r'\s'`) 可以避免 Python 解釋器對反斜杠進行二次處理，確保正則表達式引擎接收到正確的模式。
-
-*   **問題:** 執行測試時，出現多個 `SyntaxWarning: invalid escape sequence` 警告，主要集中在正則表達式中。
-*   **決策:** 已將所有相關的正則表達式字串轉換為原始字串 (raw string)，成功解決所有 `SyntaxWarning` 警告。
-*   **知識/教訓:** 解決 `SyntaxWarning` 有助於提升程式碼品質，避免潛在的運行時錯誤，並確保程式碼在不同 Python 版本間的兼容性。
-
-*   **問題:** 為了確保 `jieba_fast_dat` 的切詞與詞性標注功能能夠正確處理包含中文、英文和數字的混合文本，需要擴展測試覆蓋率。
-*   **決策:** 已在 `test/test_segmentation_pos.py` 中增加新的測試案例，包含中文、英文單字和數字，並細化了詞性標注的斷言，以確保這些混合文本能夠被正確處理。
-*   **知識/教訓:** 擴展測試案例以覆蓋更多輸入類型（如混合語言和數字）是確保軟體魯棒性和正確性的關鍵步驟，特別是在處理多語言文本的自然語言處理工具中。
-
-*   **問題:** 執行 `pytest` 時，`test/test_lock.py` 由於字典檔案路徑問題導致 `FileNotFoundError`。
-*   **決策:** 修改 `test/test_lock.py`，使用 `os.path` 動態建構字典檔案的絕對路徑，避免硬編碼。
-*   **知識/教訓:** 在測試腳本中處理檔案路徑時，應避免使用相對路徑，尤其是在 `pytest` 等測試框架中，因為執行環境的工作目錄可能不固定。使用 `os.path` 動態建構絕對路徑能提高測試的魯棒性。
-
-*   **問題:** 執行 `pytest` 時，`test/test_file.py`, `test/test_pos_file.py`, `test/test_whoosh_file.py` 由於嘗試存取 `sys.argv[1]` 而導致 `IndexError`。
-*   **決策:** 將這些腳本重構為符合 `pytest` 規範的測試函數，並為其提供預設的測試資料檔案 (`test/test.txt`)，移除對命令列參數的依賴。
-*   **知識/教訓:** 獨立運行的腳本若要納入 `pytest` 測試框架，需要將其邏輯包裝在 `test_` 開頭的函數中，並處理其對外部輸入（如命令列參數）的依賴，改為使用測試內部可控的資料。
-
-*   **問題:** `pytest` 嘗試收集非 Python 測試檔案 `test/test.txt`，導致 `UnicodeDecodeError`。
-*   **決策:** 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中使用 `addopts = "--ignore test/test.txt"` 選項，明確指示 `pytest` 忽略此檔案。
-*   **知識/教訓:** 當 `pytest` 的預設收集規則（如 `python_files` 或 `norecursedirs`）無法有效排除特定檔案時，可以使用 `addopts` 選項結合 `--ignore` 參數進行精確排除。
-
-*   **問題:** 執行 `pytest` 時，出現 `import file mismatch` 錯誤，因為 `test/` 和 `test/parallel/` 目錄下存在同名測試檔案。
-*   **決策:** 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中使用 `norecursedirs = ["test/parallel", "tmp"]` 選項，明確指示 `pytest` 忽略 `test/parallel` 目錄。
-*   **知識/教訓:** 避免在不同目錄中存在同名但內容不同的測試檔案，這會導致 `pytest` 的模組導入衝突。使用 `norecursedirs` 可以有效管理測試收集範圍。
-
-*   **問題:** 執行 `pytest` 時，`setup.py` 在測試收集階段被執行，導致 `DistutilsArgError: no commands supplied`。
-*   **決策:** 在 `setup.py` 中，將 `setup()` 函數的調用包裹在 `if __name__ == '__main__':` 塊中，以防止其在被導入時執行。
-*   **知識/教訓:** 腳本文件（如 `setup.py`）在被測試框架導入時，其頂層代碼會被執行。將主要邏輯包裹在 `if __name__ == '__main__':` 中可以避免不必要的執行和錯誤。
-
-*   **問題:** 執行 `pytest` 時，多個位於 `test/` 目錄下的腳本（`extract_tags.py`, `extract_tags_idfpath.py`, `extract_tags_stop_words.py`, `extract_tags_with_weight.py`, `jiebacmd.py`, `extract_topic.py`）因直接調用 `sys.exit()` 或嘗試讀取 `sys.stdin` 而導致 `SystemExit` 或 `OSError`。
-*   **決策:** 將這些腳本的主要邏輯包裹在 `if __name__ == '__main__':` 塊中，以防止其在被 `pytest` 導入時執行。
-*   **知識/教訓:** 測試框架會導入測試文件。如果測試文件包含頂層的可執行代碼（如 `sys.exit()` 或 `sys.stdin` 讀取），則會干擾測試運行。將這些代碼包裹在 `if __name__ == '__main__':` 中可以確保它們只在腳本直接執行時運行。
-
-*   **問題:** `pytest` 嘗試收集 `jieba_fast_dat` 模組的內部文件和 `build/` 目錄下的文件，導致 `ModuleNotFoundError` 和 `import file mismatch` 錯誤。
-*   **決策:** 在 `pyproject.toml` 中配置 `pytest`，將 `testpaths` 設置為 `["test"]`，並將 `build`, `.venv`, `jieba_fast_dat` 添加到 `norecursedirs` 中，以限制 `pytest` 的收集範圍。
-*   **知識/教訓:** 精確配置 `pytest` 的測試收集範圍是避免不相關文件導致錯誤的關鍵。`testpaths` 和 `norecursedirs` 是控制收集行為的重要選項。
-
-*   **問題:** `test/extract_topic.py` 由於缺少 `sklearn` 依賴而導致 `ModuleNotFoundError`，且該文件並非實際測試。
-*   **決策:** 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中，將 `test/extract_topic.py` 添加到 `addopts = "--ignore ..."` 列表中，以明確指示 `pytest` 忽略此文件。
-*   **知識/教訓:** 對於不應被 `pytest` 收集的特定文件，即使其邏輯已被 `if __name__ == '__main__':` 保護，最好還是使用 `--ignore` 選項明確排除，以避免因導入依賴而導致的錯誤。
-
-*   **問題:** `test/jieba_test.py::JiebaTestCase::testSetDictionary` 測試失敗，因為 `jieba.set_dictionary("foobar.txt")` 無法找到 `foobar.txt`。
-*   **決策:** 修改 `test/jieba_test.py` 中的 `testSetDictionary` 測試，將 `jieba.set_dictionary("test/foobar.txt")` 更改為 `jieba.set_dictionary("test/foobar.txt")`，以提供正確的相對路徑。
-*   **知識/教訓:** 在測試中引用文件時，需要確保路徑是正確的，並且考慮到測試運行時的當前工作目錄。
-
-*   **問題:** `jieba_fast_dat/__init__.py` 中的 `AttributeError: module '_jieba_fast_functions_pybind' has no attribute 'get_word_frequency'`。
-*   **決策:** 在 `jieba_fast_dat/source/jieba_fast_functions_pybind.cpp` 中，透過 `pybind11` 模組公開 `global_jieba_dict.get_word_frequency` 作為 `get_word_frequency`。
-*   **知識/教訓:** C++ 擴展中的函數必須明確地透過綁定工具（如 `pybind11`）公開，才能在 Python 中被調用。
-
-*   **問題:** `test/demo.py` 中調用 `jieba.suggest_freq` 導致 `AttributeError: module 'jieba_fast_dat' has no attribute 'suggest_freq'`。
-*   **決策:** 由於 `suggest_freq` 功能在 `jieba_fast_dat` 中不支援，將 `test/demo.py` 中所有 `jieba.suggest_freq` 的調用註釋掉。
-*   **知識/教訓:** 在修改或遷移庫時，需要檢查並調整使用舊庫功能的測試或示例代碼，以適應新庫的功能集。
-
-*   **問題:** `jieba_fast_dat/posseg/__init__.py` 中的 `AttributeError: 'Tokenizer' object has no attribute 'FREQ'`。
-*   **決策:** 在 `jieba_fast_dat/posseg/__init__.py` 中，將所有 `self.tokenizer.FREQ.get(buf)` 的調用替換為 `jieba_fast_dat._jieba_fast_functions.get_word_frequency(buf)`。
-*   **知識/教訓:** 當底層實現發生變化時，所有依賴於舊實現的模塊都需要更新。
-
-*   **問題:** `jieba_fast_dat` 的 `load_userdict`、`add_word`、`del_word` 和 `suggest_freq` 方法都拋出 `NotImplementedError`，這與 `spec.md` 中關於支援用戶詞典的目標不符。
-*   **決策:** 修改 `jieba_fast_dat/__init__.py`：
-    *   `load_userdict` 方法現在呼叫 `self.set_dictionary(f)`，使其能夠透過重新初始化來載入用戶詞典。
-    *   `add_word`、`del_word` 和 `suggest_freq` 方法被修改為無操作 (no-op) 函數，因為這些功能在 DAT 模型中不支援直接操作。
-*   **知識/教訓:** 為了在 DAT 結構下支援用戶詞典，需要將用戶詞典的載入機制與主詞典的重新初始化流程整合。直接的詞語添加/刪除和頻率調整操作與 DAT 的不可變性衝突，因此應明確標記為不支援或作為無操作處理。
-
-*   **問題:** `test/test_userdict.py` 中的 `test_english_and_regex_cut` 測試失敗，因為 `jieba.cut('easy_install is great')` 將 "easy_install" 分割成 "easy", "_", "install"，而不是作為單一詞語識別。
-*   **決策:** 修改 `test/test_userdict.py` 中的 `userdict_file` fixture，將 "easy_install" 添加到臨時的 `userdict.txt` 中，以確保其被 `jieba_fast_dat` 識別為單一詞語。
-*   **知識/教訓:** 對於應被視為單一詞語的複合英文詞彙（例如包含下劃線），需要將其明確添加到詞典中，以便 `jieba_fast_dat` 的分詞器能夠正確識別。這也驗證了用戶詞典載入功能已按預期工作。
-
-*   **問題:** 需要驗證 `jieba_fast_dat` 的字典初始化和載入速度，確保其符合高效能要求，並確認字典原始檔沒有變化的狀態下能夠快速從快取讀取。
-*   **決策:** 新增 `test/test_dict_speed.py` 測試腳本，其中包含以下測試案例：
-    *   測量首次字典初始化的時間，並斷言其小於 1 秒。
-    *   模擬字典文件修改（透過 `os.utime` 更新修改時間），然後測量第二次初始化的時間，並斷言其小於 0.1 秒且快於首次載入。
-    *   在沒有文件變化的情況下，測量第三次初始化的時間，並斷言其小於 0.01 秒且快於第二次載入。
-*   **知識/教訓:** 透過精確的計時測試，確認 `jieba_fast_dat` 在首次載入時能保持高效，並在後續載入中利用快取機制實現近乎瞬時的啟動，這對於提升使用者體驗和應用效能至關重要。
+*   **問題:** 專案同時支援 Python 2 和 Windows，增加了維護複雜性。
+*   **決策:** 移除對 Python 2 和 Windows 的支援，專注於 Python 3 (Linux/macOS)。
+*   **問題:** 套件名稱和導入名稱與專案目錄結構不一致。
+*   **決策:** 將套件名稱和導入名稱統一改為 `jieba_fast_dat`。
+*   **問題:** 需要一個高效的工具來管理 Python 套件和虛擬環境。
+*   **決策:** 採用 `uv` 作為標準工具。
+*   **問題:** 專案使用 SWIG 進行 C++ 綁定，但 `pybind11` 更現代。
+*   **決策:** 將 C++ 綁定技術從 SWIG 遷移到 `pybind11`。
+*   **問題:** 專案的測試分散且沒有統一的測試框架。
+*   **決策:** 統一使用 `pytest` 作為專案的測試框架。
+*   **問題:** `pytest` 執行時，多個測試因檔案路徑、命令列參數依賴、非測試檔案收集等問題導致錯誤。
+*   **決策:** 全面重構測試並配置 `pyproject.toml`，以符合 `pytest` 規範。
+*   **問題:** C++ 擴展遷移到 `pybind11` 後，出現多個 `AttributeError`。
+*   **決策:** 修正 C++ 擴展的函數公開、調整 Python 層的 API 調用，並更新測試。
+*   **問題:** `load_userdict` 等方法拋出 `NotImplementedError`。
+*   **決策:** 重新實現 `load_userdict` 以觸發字典重新初始化，並將不支援的操作改為無操作。
+*   **問題:** 需要驗證字典初始化和快取載入的速度。
+*   **決策:** 新增 `test/test_dict_speed.py` 效能測試腳本。
+*   **問題:** `jieba_fast_dat` 的 DAT 實現是記憶體內的，效能有待提升。
+*   **決策:** 分析 `cppjieba-py-dat` 的 `mmap` 和持久化快取實現，作為後續優化的藍圖。
 
 ### E. 進度管理與待辦事項 (Progress & To-Do)
 
 *   **DONE:**
-    *   移除所有 Python 2 相關的程式碼和配置。
-    *   移除所有 Windows 相關的程式碼和配置。
-    *   更新 `setup.py` 以反映移除 Python 2 和 Windows 支援。
-    *   更新 `MANIFEST.in` 以移除任何 Python 2 或 Windows 相關的檔案包含規則。
-    *   檢查並修改 `jieba_fast/_compat.py` 中任何 Python 2 相容性程式碼。
-    *   修改 `setup.py` 中的套件名稱、`packages` 和 `package_dir` 為 `jieba_fast_dat`。
-    *   將專案根目錄下的 `jieba_fast/` 目錄重新命名為 `jieba_fast_dat/`。
-    *   創建 `requirements.txt` 並包含 `setuptools`, `wheel`, `swig`。
-    *   創建 `uv` 虛擬環境並安裝依賴。
-    *   建制uv虛擬環境後，就先測試是否能在虛擬環境中正確運作。
-    *   建立測試檔案，測試切詞與詞性標注是否有正確運作(是否有切詞, 是否能標注詞性(不能全部是x)), 以此每次修改後就執行測試一下是否功能壞掉了。
-    *   更新開發和測試環境的設置指南，以包含 `uv` 的使用說明。
-    *   檢查 `MANIFEST.in` 是否需要更新 `jieba_fast/` 為 `jieba_fast_dat/`。
-    *   處理 `pkg_resources` 模組已棄用的警告，並替換為 `importlib.resources`。
-    *   處理 `SyntaxWarning: invalid escape sequence` 警告，將正則表達式字串轉換為原始字串。
-    *   將專案的套件安裝和虛擬環境管理流程遷移到 `uv`。
-    *   更新 `setup.py` 中的 Python 分類器，以明確支援 Python 3.8+。
-    *   移除 `jieba_fast_dat/source/jieba_fast_functions_wrap_py2_wrap.c` 檔案。
-    *   **評估 SWIG 實作的現有範圍和限制，以及遷移到 `pybind11` 或 `Cython` 的潛在效益。**
-        *   **決策：** 根據對現有 SWIG 實作的分析，並考量 `spec.md` 中已有的決策，確認將 C++ 綁定技術從 SWIG 遷移到 `pybind11`。
-    *   **執行 `pybind11` 遷移：**
-        *   重寫 `jieba_fast_dat/source/jieba_fast_functions_wrap_py3.i` 中定義的 C 函數（`_calc`, `_get_DAG`, `_get_DAG_and_calc`, `_viterbi`）以使用 `pybind11` 的 API。
-        *   更新 `setup.py` 中的擴展模組配置，以編譯 `pybind11` 擴展。
-        *   移除所有 SWIG 相關的檔案（例如 `jieba_fast_dat/source/jieba_fast_functions_wrap_py3.i` 和 `jieba_fast_dat/source/jieba_fast_functions_wrap_py3_wrap.c`）。
-    *   更新 `requirements.txt`，將 `swig` 替換為 `pybind11`。
-    *   將 `test/` 目錄下的所有測試遷移到 `pytest` 框架。
-    *   確保所有測試都能被 `pytest` 發現並正確執行。
-    *   更新測試執行指令和相關文件，以反映 `pytest` 的使用。
-    *   修正 `test/test_lock.py` 中的 `FileNotFoundError`。
-    *   重構 `test/test_file.py`, `test/test_pos_file.py`, `test/test_whoosh_file.py` 以符合 `pytest` 規範。
-    *   解決 `test/test.txt` 導致的 `UnicodeDecodeError`。
-    *   解決 `pytest` 收集時的 `import file mismatch` 錯誤。
-    *   解決 `setup.py` 在測試收集階段被執行導致的 `DistutilsArgError`。
-    *   解決 `test/` 目錄下的腳本直接調用 `sys.exit()` 或讀取 `sys.stdin` 導致的 `SystemExit` 或 `OSError`。
-    *   解決 `pytest` 嘗試收集 `jieba_fast_dat` 模組內部文件和 `build/` 目錄下文件導致的 `ModuleNotFoundError` 和 `import file mismatch` 錯誤。
-    *   解決 `test/extract_topic.py` 缺少 `sklearn` 依賴導致的 `ModuleNotFoundError`。
-    *   解決 `test/jieba_test.py::JiebaTestCase::testSetDictionary` 測試中 `foobar.txt` 文件路徑錯誤的問題。
-    *   解決 `jieba_fast_dat/__init__.py` 中的 `AttributeError: module '_jieba_fast_functions_pybind' has no attribute 'get_word_frequency'`。
-    *   解決 `test/demo.py` 中調用 `jieba.suggest_freq` 導致 `AttributeError: module 'jieba_fast_dat' has no attribute 'suggest_freq'`。
-    *   解決 `jieba_fast_dat/posseg/__init__.py` 中的 `AttributeError: 'Tokenizer' object has no attribute 'FREQ'`。
-    *   解決 `jieba_fast_dat` 的 `load_userdict`、`add_word`、`del_word` 和 `suggest_freq` 方法拋出 `NotImplementedError` 的問題，並調整 `test/test_userdict.py` 以符合新的用戶詞典處理機制。
-    *   解決 `test/test_userdict.py` 中的 `test_english_and_regex_cut` 測試失敗問題，透過將 "easy_install" 添加到用戶詞典中來確保其被正確識別。
-    *   新增 `test/test_dict_speed.py` 測試腳本，並成功驗證了字典初始化和載入速度符合高效能要求，且在字典原始檔沒有變化的狀態下能夠快速從快取讀取。
-*   **TODO:**
-    *   较低内存占用: 使用 Double-Array Trie (DAT) 替换原版 Jieba 的内存 Trie，大幅降低词典加载内存
-    *   快速加载: 利用 mmap 加载预先构建的 DAT 缓存文件，实现近乎瞬时的初始化（非首次运行）。
-    *   动态词典: 不支持 运行时动态添加用户词 (add_word / InsertUserWord 功能被移除)。如需更新用户词典，需要修改用户词典文件并重新运行程序（会自动检测到变更并重建 DAT 缓存）。
+    *   **專案現代化:** 成功移除 Python 2 和 Windows 支援，並將 C++ 綁定從 SWIG 遷移至 `pybind11`。
+    *   **工具鏈統一:** 全面採用 `uv` 進行環境管理，並使用 `pytest` 作為唯一的測試框架。
+    *   **測試重構:** 完成了對 `test/` 目錄的全面重構，解決了 `pytest` 的收集與執行問題，並確保所有測試通過。
+    *   **功能對齊:** 調整了用戶詞典相關 API (`load_userdict`) 以適應 DAT 模型，並新增了效能測試。
+
+    *   **階段 1: C++ 層 - 實作 DAT 序列化/反序列化**
+        *   **步驟 1.1: 在 C++ 中實作 `JiebaDict::save_dat`:**
+            *   修改 `jieba_fast_functions_pybind.cpp`，向 `JiebaDict` 添加 `save_dat` 方法。
+            *   此方法將接收一個 `cache_path` 字串。
+            *   呼叫 `trie.save(cache_path + ".trie")` 儲存 Double-Array Trie。
+            *   將詞頻 (`freq_map`) 序列化到 `cache_path + ".freq"`。
+            *   返回一個布林值表示成功/失敗。
+        *   **步驟 1.2: 在 C++ 中實作 `JiebaDict::open_dat`:**
+            *   修改 `jieba_fast_functions_pybind.cpp`，向 `JiebaDict` 添加 `open_dat` 方法。
+            *   此方法將接收一個 `cache_path` 字串。
+            *   呼叫 `trie.open(cache_path + ".trie")` 載入 Double-Array Trie。
+            *   從 `cache_path + ".freq"` 反序列化詞頻 (`freq_map`)。
+            *   返回一個布林值表示成功/失敗。
+        *   **步驟 1.3: 透過 `pybind11` 將 `save_dat` 和 `open_dat` 公開給 Python。**
+            *   修改 `jieba_fast_functions_pybind.cpp`，添加 `save_dat` 和 `open_dat` 的綁定。
+        *   **步驟 1.4: 重新編譯 C++ 擴展並重新安裝套件。**
+            *   執行 `uv pip install . --force-reinstall` 以應用 C++ 更改。
+
+    *   **階段 2: Python 整合快取邏輯**
+        *   **步驟 2.1: 在 Python 中實作 `get_cache_file_path`:**
+            *   修改 `jieba_fast_dat/__init__.py`，添加 `get_cache_file_path(dict_path)`。
+            *   此函數將根據 `dict_path` 內容的 MD5 雜湊生成唯一的快取檔案路徑。
+            *   如果快取目錄不存在，它將建立快取目錄。
+        *   **步驟 2.2: 修改 `Tokenizer.initialize` 以進行快取載入/儲存 (並增加偵錯日誌):**
+            *   修改 `jieba_fast_dat/__init__.py` 中的 `initialize` 方法。
+            *   在呼叫 `_jieba_fast_functions.load_dict` 之前，使用 `get_cache_file_path` 檢查快取是否存在。
+            *   如果快取存在，嘗試使用 `_jieba_fast_functions.open_dat` 載入。如果成功，設定 `self.initialized = True` 並返回。
+            *   如果快取不存在或載入失敗，則繼續執行 `_jieba_fast_functions.load_dict`。
+            *   在成功執行 `_jieba_fast_functions.load_dict` 之後，呼叫 `_jieba_fast_functions.save_dat` 以將新建立的 DAT 儲存到快取。
+            *   將 `import hashlib` 添加到 `jieba_fast_dat/__init__.py`。
+            *   **增加偵錯日誌:** 在關鍵點（例如：開始載入詞典、嘗試從快取載入、快取載入成功/失敗、建立快取、快取檔案路徑等）添加 `default_logger.debug` 訊息，以追蹤流程和檔案路徑。**特別是，記錄詞彙量和花費時間。**
+        *   **步驟 2.3: 重新編譯 C++ 擴展並重新安裝套件。**
+            *   執行 `uv pip install . --force-reinstall` 以應用 Python 更改（並確保 C++ 是最新的）。
+
+    *   **階段 3: 測試**
+        *   **步驟 3.1: 建立/修改 `test_mmap_cache.py`:**
+            *   建立一個新的測試檔案 `test/test_mmap_cache.py` (或修改如果它存在於之前的嘗試中)。
+            *   添加測試以：
+                *   驗證快取檔案建立。
+                *   驗證快取載入速度。
+                *   驗證快取失效 (如果詞典內容更改)。
+                *   驗證從快取載入後分詞的正確性。
+        *   **步驟 3.2: 執行測試。**
+            *   執行 `pytest -s` 以驗證實作。

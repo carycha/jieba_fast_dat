@@ -120,6 +120,58 @@ public:
         return result;
     }
 
+    bool save_dat(const std::string& cache_path) {
+        // Save Double-Array Trie
+        int trie_save_result = trie.save((cache_path + ".trie").c_str());
+        if (trie_save_result != 0) {
+            py::print("Error: Failed to save Double-Array Trie to", cache_path + ".trie", "Result:", trie_save_result);
+            return false;
+        }
+
+        // Save word frequencies
+        std::ofstream ofs(cache_path + ".freq");
+        if (!ofs.is_open()) {
+            py::print("Error: Could not open frequency file for writing:", cache_path + ".freq");
+            return false;
+        }
+        for (const auto& pair : word_frequencies) {
+            ofs << pair.first << "\t" << pair.second << "\n";
+        }
+        ofs.close();
+        py::print("Debug: Successfully saved DAT cache to", cache_path + ".trie", "and", cache_path + ".freq");
+        return true;
+    }
+
+    bool open_dat(const std::string& cache_path) {
+        // Load Double-Array Trie
+        int trie_open_result = trie.open((cache_path + ".trie").c_str());
+        if (trie_open_result != 0) {
+            py::print("Error: Failed to open Double-Array Trie from", cache_path + ".trie", "Result:", trie_open_result);
+            return false;
+        }
+
+        // Load word frequencies
+        std::ifstream ifs(cache_path + ".freq");
+        if (!ifs.is_open()) {
+            py::print("Error: Could not open frequency file for reading:", cache_path + ".freq");
+            return false;
+        }
+        word_frequencies.clear(); // Clear existing frequencies
+        std::string line;
+        while (std::getline(ifs, line)) {
+            std::istringstream iss(line);
+            std::string word;
+            double freq;
+            if (std::getline(iss, word, '\t') && (iss >> freq)) {
+                word_frequencies[word] = freq;
+            }
+        }
+        ifs.close();
+        is_loaded = true;
+        py::print("Debug: Successfully loaded DAT cache from", cache_path + ".trie", "and", cache_path + ".freq", "with", word_frequencies.size(), "words.");
+        return true;
+    }
+
     bool is_dict_loaded() const {
         return is_loaded;
     }
@@ -130,6 +182,10 @@ public:
             total += pair.second;
         }
         return total;
+    }
+
+    size_t get_word_count() const {
+        return word_frequencies.size();
     }
 
 private:
@@ -408,10 +464,19 @@ PYBIND11_MODULE(_jieba_fast_functions_pybind, m) {
     m.def("load_dict", [](const std::string& dict_path) {
         return global_jieba_dict.load_dict(dict_path);
     }, "Load the dictionary from a given path.");
+    m.def("save_dat", [](const std::string& cache_path) {
+        return global_jieba_dict.save_dat(cache_path);
+    }, "Save the Double-Array Trie and word frequencies to cache files.");
+    m.def("open_dat", [](const std::string& cache_path) {
+        return global_jieba_dict.open_dat(cache_path);
+    }, "Open the Double-Array Trie and word frequencies from cache files.");
     m.def("get_total_frequency", []() {
         return global_jieba_dict.get_total_frequency();
     }, "Get the total frequency of words in the dictionary.");
     m.def("get_word_frequency", [](const std::string& word) {
         return global_jieba_dict.get_word_frequency(word);
     }, "Get the frequency of a specific word.");
+    m.def("get_word_count", []() {
+        return global_jieba_dict.get_word_count();
+    }, "Get the number of words in the dictionary.");
 }

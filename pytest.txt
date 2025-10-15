@@ -94,88 +94,86 @@ word 有限公司		 start: 6 		 end:10
 跛 a
 又 d
 啞 v
-===> Thread 1:137163172210368 started
+===> Thread 1:140410341639872 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
-===> Thread 1:137163126073024 started
+===> Thread 1:140410295502528 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
-===> Thread 1:137163117680320 started
-===> Thread 1:137163109287616 started
+===> Thread 1:140410287109824 started
+===> Thread 1:140410278717120 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
-===> Thread 1:137163100894912 started
-<=== Thread 1:137163126073024 finished
+<=== Thread 1:140410295502528 finished
+===> Thread 1:140410064205504 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
-===> Thread 2:137163092502208 started
+<=== Thread 1:140410341639872 finished
+===> Thread 2:140410295502528 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
-===> Thread 2:137163126073024 started
-===> Thread 2:137163084109504 started
-<=== Thread 1:137163172210368 finished
-===> Thread 2:137162733385408 started
+<=== Thread 1:140410287109824 finished
+===> Thread 2:140410287109824 started
+<=== Thread 1:140410278717120 finished
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
-===> Thread 2:137163172210368 started
-<=== Thread 1:137163109287616 finished
+===> Thread 2:140410278717120 started
+Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
+<=== Thread 1:140410064205504 finished
+===> Thread 2:140410341639872 started
+<=== Thread 2:140410295502528 finished
+===> Thread 2:140410295502528 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
-<=== Thread 1:137163100894912 finished
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
-<=== Thread 1:137163117680320 finished
-<=== Thread 2:137163126073024 finished
-Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
-<=== Thread 2:137163092502208 finished
-<=== Thread 2:137162733385408 finished
-<=== Thread 2:137163084109504 finished
-<=== Thread 2:137163172210368 finished
+<=== Thread 2:140410287109824 finished
+<=== Thread 2:140410341639872 finished
+<=== Thread 2:140410278717120 finished
+<=== Thread 2:140410295502528 finished
 ========================================
-===> Thread 1:137163172210368 started
+===> Thread 1:140410295502528 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
-<=== Thread 1:137163172210368 finished
-===> Thread 1:137163084109504 started
-<=== Thread 1:137163084109504 finished
-===> Thread 1:137163084109504 started
-<=== Thread 1:137163084109504 finished
-===> Thread 1:137163084109504 started
-<=== Thread 1:137163084109504 finished
-===> Thread 1:137163084109504 started
-<=== Thread 1:137163084109504 finished
-===> Thread 2:137163084109504 started
+<=== Thread 1:140410295502528 finished
+===> Thread 1:140410278717120 started
+<=== Thread 1:140410278717120 finished
+===> Thread 1:140410278717120 started
+<=== Thread 1:140410278717120 finished
+===> Thread 1:140410278717120 started
+<=== Thread 1:140410278717120 finished
+===> Thread 1:140410278717120 started
+<=== Thread 1:140410278717120 finished
+===> Thread 2:140410278717120 started
 Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/extra_dict/dict.txt.small with 109750 words.
-<=== Thread 2:137163084109504 finished
-===> Thread 2:137163172210368 started
-<=== Thread 2:137163172210368 finished
-===> Thread 2:137163172210368 started
-<=== Thread 2:137163172210368 finished
-===> Thread 2:137163172210368 started
-<=== Thread 2:137163172210368 finished
-===> Thread 2:137163172210368 started
-<=== Thread 2:137163172210368 finished
+<=== Thread 2:140410278717120 finished
+===> Thread 2:140410295502528 started
+<=== Thread 2:140410295502528 finished
+===> Thread 2:140410295502528 started
+<=== Thread 2:140410295502528 finished
+===> Thread 2:140410295502528 started
+<=== Thread 2:140410295502528 finished
+===> Thread 2:140410295502528 started
+<=== Thread 2:140410295502528 finished
 Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 Default Mode:我/ 来到/ 北京/ 清华大学
 Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 他, 来到, 了, 网易, 杭研, 大厦
+Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 Default Mode:我/ 来到/ 北京/ 清华大学
+小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
+Default Mode:我/ 来到/ 北京/ 清华大学
+他, 来到, 了, 网易, 杭研, 大厦
+他, 来到, 了, 网易, 杭研, 大厦
+Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
+Default Mode:我/ 来到/ 北京/ 清华大学
+小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
 他, 来到, 了, 网易, 杭研, 大厦
 小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
 Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
-Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 Default Mode:我/ 来到/ 北京/ 清华大学
-Default Mode:我/ 来到/ 北京/ 清华大学
-他, 来到, 了, 网易, 杭研, 大厦
-他, 来到, 了, 网易, 杭研, 大厦
-Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
-小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
-Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
-Default Mode:我/ 来到/ 北京/ 清华大学
-Default Mode:我/ 来到/ 北京/ 清华大学
-他, 来到, 了, 网易, 杭研, 大厦
-小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
-Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
-小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
-他, 来到, 了, 网易, 杭研, 大厦
 小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
 Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 他, 来到, 了, 网易, 杭研, 大厦
 Default Mode:我/ 来到/ 北京/ 清华大学
 Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
+Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
+Default Mode:我/ 来到/ 北京/ 清华大学
+小明, 硕士, 毕业, 于, 中国, 科学, 学院, 科学院, 中国科学院, 计算, 计算所, ，, 后, 在, 日本, 京都, 大学, 日本京都大学, 深造
+Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
 他, 来到, 了, 网易, 杭研, 大厦
 Default Mode:我/ 来到/ 北京/ 清华大学
 Full Mode:我/ 来到/ 北京/ 清华/ 华大/ 大学
@@ -245,7 +243,7 @@ result of  乔峰
 ==========
 collected 22 items
 
-test/jieba_test.py                                                                                                                                                                                                                      Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
+test/jieba_test.py  �cľC�h���ճ  ��     p��M�)�0��ճ  ��     ��'��P��ճ  ��     h�7�pc���ճ  ��     ԰K���0��ճ  ��     ��ߴ�qب���ճ  ��     `/�:�u�[��ճ  ��     b6�t�DZ ��ճ  ��     y�e�A�Њ�ճ  ��     ��i�R,���ճ  ��     �\���t;���ճ  ��     ���lS��F���ճ  ��     ��*vDictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
 .Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
 .Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
 .Dictionary loaded successfully from: /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/.venv/lib/python3.12/site-packages/jieba_fast_dat/dict.txt with 349046 words.
@@ -269,10 +267,10 @@ test/test_dict_speed.py First dictionary load time: 0.0000 seconds
 Second dictionary load time (after touch): 0.0000 seconds
 Third dictionary load time (no change): 0.0000 seconds
 .
-test/test_file.py cost 0.04029107093811035
-speed 2928.6885965690885 bytes/second
+test/test_file.py cost 0.040793418884277344
+speed 2892.623448275862 bytes/second
 .
-test/test_pos_file.py speed 2784.6079994598763  bytes/second
+test/test_pos_file.py speed 2911.597329176104  bytes/second
 .
 test/test_segmentation_pos.py Testing word segmentation for: 我愛北京天安門
 Segmented words: ['我', '愛', '北京', '天安', '門']
@@ -283,10 +281,8 @@ POS tagged words: [pair('我', 'r'), pair('愛', 'v'), pair('北京', 'ns'), pai
 Testing POS tagging for: 我喜歡 Python 程式設計，版本是 3.9，價格是 $100.50。
 POS tagged words: [pair('我', 'r'), pair('喜歡', 'v'), pair(' ', 'x'), pair('Python', 'eng'), pair(' ', 'x'), pair('程式', 'n'), pair('設計', 'vn'), pair('，', 'x'), pair('版本', 'n'), pair('是', 'v'), pair(' ', 'x'), pair('3.9', 'm'), pair('，', 'x'), pair('價格', 'n'), pair('是', 'v'), pair(' ', 'x'), pair('$', 'x'), pair('100.50', 'm'), pair('。', 'x')]
 .
-test/test_userdict.py Dictionary loaded successfully from: /tmp/pytest-of-carycha/pytest-2/userdict_dir0/userdict.txt with 3 words.
-.Dictionary loaded successfully from: /tmp/pytest-of-carycha/pytest-2/userdict_dir0/userdict.txt with 3 words.
-Dictionary loaded successfully from: /tmp/pytest-of-carycha/pytest-2/userdict_dir0/userdict.txt with 4 words.
+test/test_userdict.py Dictionary loaded successfully from: /tmp/pytest-of-carycha/pytest-6/userdict_dir0/userdict.txt with 3 words.
+.Dictionary loaded successfully from: /tmp/pytest-of-carycha/pytest-6/userdict_dir0/userdict.txt with 3 words.
+Dictionary loaded successfully from: /tmp/pytest-of-carycha/pytest-6/userdict_dir0/userdict.txt with 4 words.
 ....
-test/test_whoosh_file.py .
-
-============================= 22 passed in 28.19s ==============================
+test/test_whoosh_file.py 

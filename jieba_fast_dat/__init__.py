@@ -15,6 +15,7 @@ from hashlib import md5
 from ._compat import *
 from . import finalseg
 import platform
+import hashlib # Added this line
 
 if platform.python_version().startswith('2'):
     import _jieba_fast_functions_py2 as _jieba_fast_functions
@@ -75,6 +76,7 @@ class Tokenizer(object):
         if dictionary:
             abs_path = _get_abs_path(dictionary)
             if self.dictionary == abs_path and self.initialized:
+                default_logger.debug(f"Dictionary '{abs_path}' already initialized. Skipping.")
                 return
             else:
                 self.dictionary = abs_path
@@ -89,19 +91,73 @@ class Tokenizer(object):
             except KeyError:
                 pass
             if self.initialized:
+                default_logger.debug(f"Dictionary '{abs_path}' already initialized. Skipping.")
                 return
 
-            default_logger.debug("Building prefix dict from %s ..." % (abs_path or 'the default dictionary'))
+            default_logger.debug(f"Initializing dictionary from {abs_path or 'the default dictionary'}...")
             t1 = time.time()
 
-            self.dictionary = get_module_res_path(DEFAULT_DICT_NAME) # Use get_module_res_path to get the full path string
-            # Call the C++ load_dict function
-            _jieba_fast_functions.load_dict(abs_path)
+            default_logger.debug(f"Determining cache path for '{abs_path}'...")
+            cache_file_path = get_cache_file_path(abs_path)
+            if cache_file_path is None:
+                default_logger.error(f"Failed to get cache file path for {abs_path}. Proceeding without cache.")
+                # Fallback to original dictionary loading
+                if _jieba_fast_functions.load_dict(abs_path):
+                    self.initialized = True
+                    default_logger.debug(
+                        f"Loading model from original file cost {time.time() - t1:.3f} seconds. "
+                        f"Vocabulary size: {_jieba_fast_functions.get_word_count()} words."
+                    )
+                    default_logger.debug("Prefix dict has been built successfully from original file.")
+                else:
+                    default_logger.error(f"Failed to load dictionary from {abs_path}")
+                    self.initialized = False
+                return
 
-            self.initialized = True
-            default_logger.debug(
-                "Loading model cost %.3f seconds." % (time.time() - t1))
-            default_logger.debug("Prefix dict has been built succesfully.")
+            # Try to load from cache
+            trie_cache_exists = os.path.exists(cache_file_path + ".trie")
+            freq_cache_exists = os.path.exists(cache_file_path + ".freq")
+
+            if trie_cache_exists and freq_cache_exists:
+                default_logger.debug(f"Attempting to load dictionary from cache: {cache_file_path}.trie and {cache_file_path}.freq")
+                t_cache_load = time.time()
+                if _jieba_fast_functions.open_dat(cache_file_path):
+                    self.initialized = True
+                    default_logger.debug(
+                        f"Loading model from cache cost {time.time() - t_cache_load:.3f} seconds. "
+                        f"Total initialization cost {time.time() - t1:.3f} seconds. "
+                        f"Vocabulary size: {_jieba_fast_functions.get_word_count()} words."
+                    )
+                    default_logger.debug("Prefix dict has been built successfully from cache.")
+                    return
+                else:
+                    default_logger.warning(f"Failed to load dictionary from cache: {cache_file_path}. Falling back to original file.")
+            else:
+                default_logger.debug(f"Cache files not found for {abs_path}. Trie: {trie_cache_exists}, Freq: {freq_cache_exists}. Building from original.")
+
+            # Fallback to original dictionary loading if cache fails or doesn't exist
+            default_logger.debug(f"Loading dictionary from original file: {abs_path}")
+            t_original_load = time.time()
+            if _jieba_fast_functions.load_dict(abs_path):
+                self.initialized = True
+                default_logger.debug(
+                    f"Loading model from original file cost {time.time() - t_original_load:.3f} seconds. "
+                    f"Total initialization cost {time.time() - t1:.3f} seconds. "
+                    f"Vocabulary size: {_jieba_fast_functions.get_word_count()} words."
+                )
+                default_logger.debug("Prefix dict has been built successfully from original file.")
+
+                # Save to cache after successful loading from original
+                default_logger.debug(f"Saving dictionary to cache: {cache_file_path}.trie and {cache_file_path}.freq")
+                t_cache_save = time.time()
+                if _jieba_fast_functions.save_dat(cache_file_path):
+                    default_logger.debug(f"Saving cache cost {time.time() - t_cache_save:.3f} seconds.")
+                else:
+                    default_logger.error(f"Failed to save cache for {abs_path}.")
+                time.sleep(0.1) # Add a small delay to ensure file is written to disk
+            else:
+                default_logger.error(f"Failed to load dictionary from {abs_path}")
+                self.initialized = False # Ensure initialized is False on failure
 
     def check_initialized(self):
         if not self.initialized:
@@ -422,6 +478,32 @@ def enable_parallel(processnum=None):
 
 
 def disable_parallel():
+    global pool, dt, cut, cut_for_search
+    if pool:
+        pool.close()
+        pool = None
+    cut = dt.cut
+    cut_for_search = dt.cut_for_search
+
+def get_cache_file_path(dict_path):
+    """
+    Generates a unique cache file path based on the dictionary path and its content.
+    """
+    # Use a temporary directory for cache for simplicity
+    cache_dir = os.path.join(tempfile.gettempdir(), "jieba_fast_dat_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Calculate MD5 hash of the dictionary content
+    try:
+        with open(dict_path, 'rb') as f:
+            dict_hash = hashlib.md5(f.read()).hexdigest()
+    except IOError:
+        default_logger.error(f"Error: Could not read dictionary file for hashing: {dict_path}")
+        return None # Indicate failure
+
+    cache_file_name = f"jieba_fast_dat_{dict_hash}"
+    full_cache_path = os.path.join(cache_dir, cache_file_name)
+    return full_cache_path
     global pool, dt, cut, cut_for_search
     if pool:
         pool.close()
