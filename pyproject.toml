@@ -2,6 +2,42 @@
 requires = ["setuptools>=61.0", "pybind11>=2.6.0"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "jieba_fast_dat"
+version = "0.54"
+description = "使用 dat 與 mmap to Speed up jieba<Chinese Words Segementation Utilities>"
+authors = [
+    { name = "carycha", email = "carycha@gmail.com" }
+]
+license = "MIT"
+requires-python = ">=3.8"
+keywords = ["NLP", "tokenizing", "Chinese word segementation"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Natural Language :: Chinese (Simplified)",
+    "Natural Language :: Chinese (Traditional)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Text Processing :: Indexing",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "pybind11>=2.6.0",
+]
+
+[tool.setuptools]
+packages = ["jieba_fast_dat"]
+package-dir = {"" = "."}
+
+[tool.setuptools.package-data]
+"jieba_fast_dat" = ["*.*", "finalseg/*", "analyse/*", "posseg/*", "source/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
 norecursedirs = ["test/parallel", "tmp", "build", ".venv", "jieba_fast_dat"]

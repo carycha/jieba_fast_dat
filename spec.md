@@ -4,10 +4,7 @@
 
 ### E. 進度管理與待辦事項 (Progress & To-Do)
 
-
-
 *   **TODO:**
-    *   **處理 pyproject.toml 與 setup.py 同時存在且職權重疊的問題**
     *   **POS 優化 - 階段 1: C++ HMM 參數管理與 Viterbi 實現**
         *   定義 C++ 數據結構以高效儲存 POS HMM 參數 (start_P, trans_P, emit_P, char_state_tab_P)。
         *   在 C++ 中實現從檔案載入這些 HMM 參數的邏輯。
@@ -24,6 +21,8 @@
         *   評估將 HMM 模式下未登錄詞處理邏輯遷移到 C++ 的可行性。
 
 *   **DONE:**
+    *   **處理 pyproject.toml 與 setup.py 同時存在且職權重疊的問題**
+        *   刪除 `setup.py`，將所有專案元數據和 `pybind11` 擴展配置移至 `pyproject.toml`。解決 `long_description` 和 `classifiers` 的配置錯誤。最終，由於 `setuptools` 對 `ext_modules` 在 `pyproject.toml` 中的限制，重新引入一個極簡的 `setup.py` 僅用於定義 `ext_modules`，而 `pyproject.toml` 負責所有其他元數據。成功解決衝突並通過所有測試。
     *   **測試修復 - 階段 1: 調整 `test_dict_speed.py` 中的 `test_dictionary_loading_speed`**
         *   移除 `os.utime(big_dict_path, None)` 呼叫，因為快取機制基於 MD5 雜湊而非檔案修改時間。
         *   調整第三次載入的斷言，使其檢查載入時間是否小於 0.4 秒，並且不大於第二次載入時間的 1.1 倍，以反映快取載入的穩定性。
@@ -165,3 +164,6 @@
 *   **決策:** 重新實現 `load_userdict` 以觸發字典重新初始化，並將不支援的操作改為無操作。
 *   **問題:** 需要驗證字典初始化和快取載入的速度。
 *   **決策:** 新增 `test/test_dict_speed.py` 效能測試腳本。
+*   **決策:** 成功執行 `uv pip install . --force-reinstall` 和 `uv run pytest`，所有測試通過。
+*   **問題:** `pyproject.toml` 與 `setup.py` 同時存在且職權重疊，導致建置失敗。用戶希望以 `pyproject.toml` 為主要配置。
+*   **決策:** 刪除 `setup.py`，將所有專案元數據和 `pybind11` 擴展配置移至 `pyproject.toml`。解決 `long_description` 和 `classifiers` 的配置錯誤。最終，由於 `setuptools` 對 `ext_modules` 在 `pyproject.toml` 中的限制，重新引入一個極簡的 `setup.py` 僅用於定義 `ext_modules`，而 `pyproject.toml` 負責所有其他元數據。成功解決衝突並通過所有測試。

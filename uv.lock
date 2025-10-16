@@ -1,3 +1,23 @@
 version = 1
 revision = 3
-requires-python = ">=3.12"
+requires-python = ">=3.8"
+
+[[package]]
+name = "jieba-fast-dat"
+version = "0.54"
+source = { editable = "." }
+dependencies = [
+    { name = "pybind11" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pybind11", specifier = ">=2.6.0" }]
+
+[[package]]
+name = "pybind11"
+version = "3.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/7b/a6d8dcb83c457e24a9df1e4d8fd5fb8034d4bbc62f3c324681e8a9ba57c2/pybind11-3.0.1.tar.gz", hash = "sha256:9c0f40056a016da59bab516efb523089139fcc6f2ba7e4930854c61efb932051", size = 546914, upload-time = "2025-08-22T20:09:27.265Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/8a/37362fc2b949d5f733a8b0f2ff51ba423914cabefe69f1d1b6aab710f5fe/pybind11-3.0.1-py3-none-any.whl", hash = "sha256:aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89", size = 293611, upload-time = "2025-08-22T20:09:25.235Z" },
+]
