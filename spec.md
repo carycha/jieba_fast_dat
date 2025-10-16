@@ -7,6 +7,7 @@
 
 
 *   **TODO:**
+    *   **處理 pyproject.toml 與 setup.py 同時存在且職權重疊的問題**
     *   **POS 優化 - 階段 1: C++ HMM 參數管理與 Viterbi 實現**
         *   定義 C++ 數據結構以高效儲存 POS HMM 參數 (start_P, trans_P, emit_P, char_state_tab_P)。
         *   在 C++ 中實現從檔案載入這些 HMM 參數的邏輯。
