@@ -21,6 +21,8 @@
         *   評估將 HMM 模式下未登錄詞處理邏輯遷移到 C++ 的可行性。
 
 *   **DONE:**
+    *   **重新建立 README.md 文件**
+        *   根據 `spec.md` 中的專案目標、功能、環境、技術棧等資訊，重新編寫了 `README.md`，使其內容更為全面和準確，並包含了安裝、使用方式、測試、許可證等必要資訊。
     *   **處理 pyproject.toml 與 setup.py 同時存在且職權重疊的問題**
         *   刪除 `setup.py`，將所有專案元數據和 `pybind11` 擴展配置移至 `pyproject.toml`。解決 `long_description` 和 `classifiers` 的配置錯誤。最終，由於 `setuptools` 對 `ext_modules` 在 `pyproject.toml` 中的限制，重新引入一個極簡的 `setup.py` 僅用於定義 `ext_modules`，而 `pyproject.toml` 負責所有其他元數據。成功解決衝突並通過所有測試。
     *   **測試修復 - 階段 1: 調整 `test_dict_speed.py` 中的 `test_dictionary_loading_speed`**
@@ -30,7 +32,8 @@
 ### A. 專案核心目標 (Goal)
 
 1.  **專注於中文文本處理:** 專案的核心目標是高效處理中文文本。
-2.  **提供高效、準確的中文分詞功能:** 作為 `jieba_fast_dat` 的核心，提供快速且精確的中文詞語切分。
+2.  **專案基礎**: `jieba_fast_dat` 基於 `jieba_fast` 進行開發，而 `jieba_fast` 則源自於 `jieba` 專案，旨在提供更高效能的中文分詞解決方案。
+3.  **提供高效、準確的中文分詞功能:** 作為 `jieba_fast_dat` 的核心，提供快速且精確的中文詞語切分。
 3.  **支援詞性標注功能:** 能夠對分詞結果進行詞性標注，提供更豐富的語言分析能力。
 4.  **核心效能優化:** 解決 `jieba_fast_dat` 首次啟動時的效能瓶頸，實現近乎瞬時的啟動速度與最低的記憶體佔用。
 5.  **功能增強:** 仿效 `cppjieba-py-dat` 的設計，實現了一個動態、持久化且能自動失效的 DAT 快取機制，以優雅地支援使用者自訂詞典。

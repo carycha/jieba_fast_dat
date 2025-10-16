@@ -17,15 +17,9 @@ from . import finalseg
 import platform
 import hashlib # Added this line
 
-if platform.python_version().startswith('2'):
-    import _jieba_fast_functions_py2 as _jieba_fast_functions
-else:
-    from . import _jieba_fast_functions_pybind as _jieba_fast_functions
+from . import _jieba_fast_functions_pybind as _jieba_fast_functions
 
-if os.name == 'nt':
-    from shutil import move as _replace_file
-else:
-    _replace_file = os.rename
+replace_file = os.rename
 
 _get_abs_path = lambda path: os.path.normpath(os.path.join(os.getcwd(), path))
 
