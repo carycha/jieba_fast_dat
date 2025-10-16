@@ -1,6 +1,6 @@
 # `jieba_fast_dat` 效能優化與功能增強專案知識庫
 
-最後更新時間: 2025-10-15
+最後更新時間: 2025-10-16
 
 ### E. 進度管理與待辦事項 (Progress & To-Do)
 
@@ -22,12 +22,9 @@
 
 *   **DONE:**
     *   **重新建立 README.md 文件**
-        *   根據 `spec.md` 中的專案目標、功能、環境、技術棧等資訊，重新編寫了 `README.md`，使其內容更為全面和準確，並包含了安裝、使用方式、測試、許可證等必要資訊。
     *   **處理 pyproject.toml 與 setup.py 同時存在且職權重疊的問題**
-        *   刪除 `setup.py`，將所有專案元數據和 `pybind11` 擴展配置移至 `pyproject.toml`。解決 `long_description` 和 `classifiers` 的配置錯誤。最終，由於 `setuptools` 對 `ext_modules` 在 `pyproject.toml` 中的限制，重新引入一個極簡的 `setup.py` 僅用於定義 `ext_modules`，而 `pyproject.toml` 負責所有其他元數據。成功解決衝突並通過所有測試。
     *   **測試修復 - 階段 1: 調整 `test_dict_speed.py` 中的 `test_dictionary_loading_speed`**
-        *   移除 `os.utime(big_dict_path, None)` 呼叫，因為快取機制基於 MD5 雜湊而非檔案修改時間。
-        *   調整第三次載入的斷言，使其檢查載入時間是否不大於第二次載入時間的 1.1 倍，以反映快取載入的穩定性。
+    *   **完善建置與測試流程**
 
 ### A. 專案核心目標 (Goal)
 
@@ -51,7 +48,7 @@
 
 ### C. 最新狀態與規範 (Current Spec)
 
-*   **現行版本**: `0.39` (來自 `jieba_fast_dat/__init__.py`)
+*   **現行版本**: `0.54` (來自 `pyproject.toml`)
 *   **關鍵參數總結**:
     *   **預設詞典**: `dict.txt`
     *   **分詞模式**: 精確模式、全模式、搜尋引擎模式。
@@ -106,19 +103,16 @@
     *   **應用**: `get_cache_file_path` 函數使用詞典檔案內容的 MD5 雜湊值來生成唯一的快取檔案名，確保快取失效機制。
 *   **多執行緒安全**:
     *   `jieba_fast_dat/__init__.py` 中的 `Tokenizer` 類別使用 `threading.RLock` 保護詞典初始化過程，確保多執行緒環境下的穩定性。
-*   **依賴管理與測試**:
-    *   **`uv`**: 用於高性能的虛擬環境管理和套件安裝。
-    *   **`pytest`**: 統一的測試框架，確保程式碼品質和功能正確性。
-    *   **測試流程**: 強制每次測試前重新編譯 C++ 擴展 (`uv pip install . --force-reinstall`)，確保測試基於最新代碼。
 *   **正規表達式 (Regular Expressions)**:
     *   廣泛用於文本預處理和分塊，例如在 `Tokenizer.cut` 中分割不同類型的文本區塊。
 *   **CPU 優先原則**: 所有算法和庫的選擇都必須符合 CPU 執行效率，避免引入對 GPU 的依賴，以確保專案在 CPU 環境下的高效運行。
 
 #### F.4 統一測試流程與知識 (Unified Testing Protocol)
 
+*   **開發依賴管理:** 所有用於測試、建置和開發的工具 (如 `pytest`, `build`, `psutil`, `whoosh`) 統一在 `pyproject.toml` 的 `[project.optional-dependencies].dev` 中管理。
 *   **統一測試框架 - pytest:** 專案統一使用 `pytest` 作為測試框架，以利用其豐富功能、易用斷言和插件生態系統。
 *   **測試執行流程:**
-    *   **強制重新編譯:** 每次執行測試前，強制執行 `uv pip install . --force-reinstall`，確保測試基於最新的 C++ 擴展模組，避免因編譯產物過時導致的錯誤。
+    *   **前置作業:** 參考 `F.6` 確保開發環境與依賴已正確安裝。
     *   **執行指令:** 使用 `uv run pytest` 執行所有測試。使用 `-s` 參數可查看 `print` 輸出。
 *   **測試覆蓋率:** 擴展測試案例以覆蓋更多輸入類型（如混合語言和數字）是確保 NLP 工具魯棒性的關鍵。
 *   **效能測試:** 透過精確的計時測試（如 `test/test_dict_speed.py`）來驗證和基準化效能優化，是確保專案目標達成的重要手段。
@@ -138,6 +132,23 @@
 *   **快取功能測試**:
     *   建立 `test/test_mmap_cache.py` 測試檔案，涵蓋快取檔案建立、載入速度、失效機制及分詞正確性等方面的驗證。
     *   透過 `pytest -s` 執行測試，確保快取機制的穩定性與正確性。
+
+#### F.6 開發與建置流程 (Development & Build Workflow)
+
+*   **環境初始化 (Environment Setup):**
+    1.  **建立虛擬環境:** 使用 `uv venv` 建立獨立的 Python 虛擬環境。
+    2.  **啟動虛擬環境:** `source .venv/bin/activate`
+    3.  **安裝開發依賴:** 使用 `uv pip install -e .[dev]` 安裝所有開發與測試所需的套件。`-e` 參數以可編輯模式安裝，方便開發。
+
+*   **統一測試流程 (Testing Workflow):**
+    *   **執行指令:** 在虛擬環境中，使用 `uv run pytest` 執行完整的測試套件。
+
+*   **套件建置流程 (Build Workflow):**
+    *   **執行指令:** 使用 `python -m build` 來建置原始碼發行版 (sdist) 和 Wheel 發行版 (wheel)。產物會存放在 `dist/` 目錄下。
+
+*   **套件打包設定 (Packaging Configuration):**
+    *   **自動探索套件:** `pyproject.toml` 已設定 `[tool.setuptools.packages.find]`，可自動探索所有 `jieba_fast_dat` 下的子套件，無需手動增列。`test` 目錄已被排除。
+    *   **包含額外檔案:** `MANIFEST.in` 檔案負責將 `README.md`, `LICENSE` 等非程式碼檔案打包至最終的發行版中。
 
 ### H. 主要技術債與風險 (Tech Debt & Risks)
 
@@ -170,3 +181,5 @@
 *   **決策:** 成功執行 `uv pip install . --force-reinstall` 和 `uv run pytest`，所有測試通過。
 *   **問題:** `pyproject.toml` 與 `setup.py` 同時存在且職權重疊，導致建置失敗。用戶希望以 `pyproject.toml` 為主要配置。
 *   **決策:** 刪除 `setup.py`，將所有專案元數據和 `pybind11` 擴展配置移至 `pyproject.toml`。解決 `long_description` 和 `classifiers` 的配置錯誤。最終，由於 `setuptools` 對 `ext_modules` 在 `pyproject.toml` 中的限制，重新引入一個極簡的 `setup.py` 僅用於定義 `ext_modules`，而 `pyproject.toml` 負責所有其他元數據。成功解決衝突並通過所有測試。
+*   **問題:** 測試與建置流程繁瑣，依賴未被統一管理。
+*   **決策:** 在 `pyproject.toml` 中建立 `[project.optional-dependencies].dev` 群組，統一管理 `pytest`, `build`, `psutil`, `whoosh` 等開發依賴。並修正 `MANIFEST.in` 與 `setuptools` 的套件探索設定，確保建置流程乾淨無警告。

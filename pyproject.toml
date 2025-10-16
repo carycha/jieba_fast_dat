@@ -32,11 +32,21 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["jieba_fast_dat"]
 package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+exclude = ["test*"]
 
 [tool.setuptools.package-data]
 "jieba_fast_dat" = ["*.*", "finalseg/*", "analyse/*", "posseg/*", "source/*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "psutil",
+    "whoosh",
+    "build"
+]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
