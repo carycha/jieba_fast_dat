@@ -1,5 +1,6 @@
 setuptools
 wheel
+build
 pybind11
 pytest
 whoosh

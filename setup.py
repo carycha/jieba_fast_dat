@@ -7,7 +7,7 @@ import platform
 
 # Define the pybind11 extension
 jieba_fast_functions_pybind = Extension(
-    '_jieba_fast_functions_pybind',
+    'jieba_fast_dat._jieba_fast_functions_pybind', # Change module name to include package
     sources=['jieba_fast_dat/source/jieba_fast_functions_pybind.cpp'],
     include_dirs=[pybind11.get_include()],
     language='c++', 

@@ -20,7 +20,7 @@ import hashlib # Added this line
 if platform.python_version().startswith('2'):
     import _jieba_fast_functions_py2 as _jieba_fast_functions
 else:
-    import _jieba_fast_functions_pybind as _jieba_fast_functions
+    from . import _jieba_fast_functions_pybind as _jieba_fast_functions
 
 if os.name == 'nt':
     from shutil import move as _replace_file
