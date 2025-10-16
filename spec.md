@@ -7,10 +7,25 @@
 
 
 *   **TODO:**
-    *   研究與評估 CPU 優化的中文詞性標注 (POS) 算法
+    *   **POS 優化 - 階段 1: C++ HMM 參數管理與 Viterbi 實現**
+        *   定義 C++ 數據結構以高效儲存 POS HMM 參數 (start_P, trans_P, emit_P, char_state_tab_P)。
+        *   在 C++ 中實現從檔案載入這些 HMM 參數的邏輯。
+        *   修改 `jieba_fast_dat/source/jieba_fast_functions_pybind.cpp` 中的 `_viterbi` 函數，使其正確處理 (狀態, 標籤) 對，並使用 C++ 內部 HMM 參數。
+        *   將 C++ POS Viterbi 函數暴露給 Python。
+    *   **POS 優化 - 階段 2: Python `POSTokenizer` 整合 C++ 實現**
+        *   修改 `jieba_fast_dat/posseg/__init__.py` 中的 `POSTokenizer.__cut` 方法，調用新的 C++ POS Viterbi 函數。
     *   研究與評估 CPU 優化的中文依存句法分析器 算法
     *   研究與評估 CPU 優化的中文命名實體識別 (NER) 算法
     *   研究與實現 CPU 優化的中文三元組萃取 算法
+    *   **分詞優化 - 階段 1: 檢查 Python 層的文本預處理和後處理是否有優化空間**
+        *   評估將頻繁使用的正規表達式操作移至 C++ 的可行性。
+    *   **分詞優化 - 階段 2: HMM 模式下未登錄詞處理的優化**
+        *   評估將 HMM 模式下未登錄詞處理邏輯遷移到 C++ 的可行性。
+
+*   **DONE:**
+    *   **測試修復 - 階段 1: 調整 `test_dict_speed.py` 中的 `test_dictionary_loading_speed`**
+        *   移除 `os.utime(big_dict_path, None)` 呼叫，因為快取機制基於 MD5 雜湊而非檔案修改時間。
+        *   調整第三次載入的斷言，使其檢查載入時間是否小於 0.4 秒，並且不大於第二次載入時間的 1.1 倍，以反映快取載入的穩定性。
 
 ### A. 專案核心目標 (Goal)
 
