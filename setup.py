@@ -4,7 +4,7 @@ from setuptools import setup, Extension
 import pybind11
 import platform
 
-LONGDOC = 'Use C and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>'
+LONGDOC = '使用 dat 與 mmap to Speed up jieba<Chinese Words Segementation Utilities>'
 
 
 # Define the pybind11 extension
@@ -19,11 +19,11 @@ jieba_fast_functions_pybind = Extension(
 
 if __name__ == '__main__':
     setup(name='jieba_fast_dat',
-              version='0.53',
-            description='Use C and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>',
+              version='0.54',
+            description='使用 dat 與 mmap to Speed up jieba<Chinese Words Segementation Utilities>',
             long_description=LONGDOC,
-            author='Sun, Junyi, deepcs233',
-            author_email='shaohao97@gmail.com',
+            author='carycha, Sun, Junyi, deepcs233',
+            author_email='carycha@gmail.com',
             url='https://github.com/deepcs233/jieba_fast',
             license="MIT",
             classifiers=[
