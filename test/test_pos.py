@@ -1,14 +1,16 @@
 #encoding=utf-8
-from __future__ import print_function
+
 import sys
 sys.path.append("../")
 import jieba_fast_dat.posseg as pseg
+import logging
+
 
 def cuttest(test_sent):
     result = pseg.cut(test_sent)
     for word, flag in result:
-        print(word, "/", flag, ", ", end=' ')
-    print("")
+        logging.info(word, "/", flag, ", ", end=' ')
+    logging.info("")
 
 
 if __name__ == "__main__":

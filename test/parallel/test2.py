@@ -1,5 +1,5 @@
 #encoding=utf-8
-from __future__ import print_function
+import logging
 import sys
 sys.path.append("../../")
 import jieba_fast_dat as jieba
@@ -7,9 +7,10 @@ jieba.enable_parallel(4)
 
 def cuttest(test_sent):
     result = jieba.cut(test_sent,cut_all=True)
+    output = []
     for word in result:
-        print(word, "/", end=' ') 
-    print("")
+        output.append(word)
+    logging.info(" / ".join(output))
 
 
 if __name__ == "__main__":
@@ -93,3 +94,4 @@ if __name__ == "__main__":
     cuttest('两块五一套，三块八一斤，四块七一本，五块六一条')
     cuttest('小和尚留了一个像大和尚一样的和尚头')
     cuttest('我是中华人民共和国公民;我爸爸是共和党党员; 地铁和平门站')
+

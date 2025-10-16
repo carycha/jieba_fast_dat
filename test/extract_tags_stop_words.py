@@ -1,5 +1,6 @@
 import sys
 sys.path.append('../')
+import logging
 
 import jieba_fast_dat as jieba
 import jieba_fast_dat.analyse
@@ -14,7 +15,7 @@ if __name__ == '__main__':
 
 
     if len(args) < 1:
-        print(USAGE)
+        logging.info(USAGE)
         sys.exit(1)
 
     file_name = args[0]
@@ -31,4 +32,4 @@ if __name__ == '__main__':
 
     tags = jieba.analyse.extract_tags(content, topK=topK)
 
-    print(",".join(tags))
+    logging.info(",".join(tags))

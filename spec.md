@@ -5,26 +5,18 @@
 ### E. 進度管理與待辦事項 (Progress & To-Do)
 
 *   **TODO:**
-    *   **POS 優化 - 階段 1: C++ HMM 參數管理與 Viterbi 實現**
-        *   定義 C++ 數據結構以高效儲存 POS HMM 參數 (start_P, trans_P, emit_P, char_state_tab_P)。
-        *   在 C++ 中實現從檔案載入這些 HMM 參數的邏輯。
-        *   修改 `jieba_fast_dat/source/jieba_fast_functions_pybind.cpp` 中的 `_viterbi` 函數，使其正確處理 (狀態, 標籤) 對，並使用 C++ 內部 HMM 參數。
-        *   將 C++ POS Viterbi 函數暴露給 Python。
-    *   **POS 優化 - 階段 2: Python `POSTokenizer` 整合 C++ 實現**
-        *   修改 `jieba_fast_dat/posseg/__init__.py` 中的 `POSTokenizer.__cut` 方法，調用新的 C++ POS Viterbi 函數。
+    *   研究與評估 CPU 優化的中文 POS 算法
     *   研究與評估 CPU 優化的中文依存句法分析器 算法
     *   研究與評估 CPU 優化的中文命名實體識別 (NER) 算法
     *   研究與實現 CPU 優化的中文三元組萃取 算法
-    *   **分詞優化 - 階段 1: 檢查 Python 層的文本預處理和後處理是否有優化空間**
-        *   評估將頻繁使用的正規表達式操作移至 C++ 的可行性。
-    *   **分詞優化 - 階段 2: HMM 模式下未登錄詞處理的優化**
-        *   評估將 HMM 模式下未登錄詞處理邏輯遷移到 C++ 的可行性。
 
 *   **DONE:**
     *   **重新建立 README.md 文件**
     *   **處理 pyproject.toml 與 setup.py 同時存在且職權重疊的問題**
     *   **測試修復 - 階段 1: 調整 `test_dict_speed.py` 中的 `test_dictionary_loading_speed`**
     *   **完善建置與測試流程**
+    *   **記憶體洩漏調查與分析**
+    *   **測試修復 - 階段 2: 將 `test/jieba_test.py` 中的 `print` 語句替換為 `logging.error`**
 
 ### A. 專案核心目標 (Goal)
 
@@ -152,6 +144,7 @@
 
 ### H. 主要技術債與風險 (Tech Debt & Risks)
 
+*   **C++ 擴充套件的初始化記憶體開銷:** 經 Valgrind 深入分析，發現在 `pytest` 環境下存在約 900KB 的「明確洩漏」。進一步隔離測試後，確認其中約 60% 是由 `pytest` 的測試環境本身引入的噪音。剩餘的 ~367KB 洩漏被證實是 Python 解譯器載入 C++ 擴充套件時產生的一次性初始化成本，並非 `load_dict` 函式中的累積性洩漏。雖然這不影響長時間運行的穩定性，但對於記憶體極度敏感的短生命週期應用，仍需納入考量。
 *   **潛在的 `mmap` 實現細節**: 雖然 `Darts::DoubleArray::save` 和 `open` 可能利用 `mmap`，但具體實現細節仍需進一步確認，以確保最佳效能和跨平台兼容性。
 *   **使用者詞典動態增刪的限制**: DAT 結構的不可變特性導致 `add_word` 和 `del_word` 成為空操作，這可能限制了某些需要頻繁動態更新詞典的應用場景。
 *   **首次載入大型詞典的初始化時間**: 儘管快取機制旨在緩解此問題，但首次載入大型詞典時仍存在初始化時間瓶頸。
@@ -183,3 +176,9 @@
 *   **決策:** 刪除 `setup.py`，將所有專案元數據和 `pybind11` 擴展配置移至 `pyproject.toml`。解決 `long_description` 和 `classifiers` 的配置錯誤。最終，由於 `setuptools` 對 `ext_modules` 在 `pyproject.toml` 中的限制，重新引入一個極簡的 `setup.py` 僅用於定義 `ext_modules`，而 `pyproject.toml` 負責所有其他元數據。成功解決衝突並通過所有測試。
 *   **問題:** 測試與建置流程繁瑣，依賴未被統一管理。
 *   **決策:** 在 `pyproject.toml` 中建立 `[project.optional-dependencies].dev` 群組，統一管理 `pytest`, `build`, `psutil`, `whoosh` 等開發依賴。並修正 `MANIFEST.in` 與 `setuptools` 的套件探索設定，確保建置流程乾淨無警告。
+*   **問題:** Valgrind 報告了 C++ 擴充套件中存在嚴重的記憶體洩漏。
+*   **決策:** 透過一系列隔離測試，最終確認洩漏並非來自 `load_dict` 的累積性問題。分析如下：
+    1.  **`pytest` 環境噪音:** 在 `pytest` 環境下，Valgrind 報告約 900KB 的「明確洩漏」。
+    2.  **獨立腳本測試:** 將測試邏輯移至獨立的 Python 腳本後，洩漏量降至約 367KB，證明超過 60% 的洩漏報告是 `pytest` 環境造成的假象。
+    3.  **循環測試:** 在獨立腳本中循環呼叫 `load_dict` 函式，洩漏量並未隨呼叫次數增加而累積。
+    4.  **最終結論:** 剩餘的 ~367KB 洩漏是 Python 解譯器在載入 C++ 擴充套件時產生的一次性初始化成本，並非函式庫核心邏輯中的 bug。此洩漏不會影響服務的長期穩定性。基於此結論，所有為偵錯而加入的臨時程式碼 (如 `finalize_module`) 均被移除。

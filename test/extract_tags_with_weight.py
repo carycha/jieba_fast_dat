@@ -1,4 +1,5 @@
 import sys
+import logging
 sys.path.append('../')
 
 import jieba_fast_dat as jieba
@@ -15,7 +16,7 @@ if __name__ == '__main__':
 
 
     if len(args) < 1:
-        print(USAGE)
+        logging.info(USAGE)
         sys.exit(1)
 
     file_name = args[0]
@@ -39,6 +40,6 @@ if __name__ == '__main__':
 
     if withWeight is True:
         for tag in tags:
-            print("tag: %s\t\t weight: %f" % (tag[0],tag[1]))
+            logging.info(f"tag: {tag[0]}\t\t weight: {tag[1]:.6f}")
     else:
-        print(",".join(tags))
+        logging.info(",".join(tags))

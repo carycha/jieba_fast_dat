@@ -1,5 +1,5 @@
 #encoding=utf-8
-from __future__ import print_function
+import logging
 import sys
 sys.path.append("../../")
 import jieba_fast_dat as jieba
@@ -7,9 +7,10 @@ jieba.enable_parallel(4)
 
 def cuttest(test_sent):
     result = jieba.cut(test_sent)
+    output = []
     for word in result:
-        print(word, "/", end=' ') 
-    print("")
+        output.append(word)
+    logging.info(" / ".join(output))
 
 
 if __name__ == "__main__":
@@ -65,9 +66,9 @@ if __name__ == "__main__":
     cuttest("此次来中国是为了")
     cuttest("使用了它就可以解决一些问题")
     cuttest(",使用了它就可以解决一些问题")
-    cuttest("其实使用了它就可以解决一些问题")
-    cuttest("好人使用了它就可以解决一些问题")
-    cuttest("是因为和国家")
+    cuttest("其實使用了它就可以解決一些问题")
+    cuttest("好人使用了它就可以解決一些问题")
+    cuttest("是因為和國家")
     cuttest("老年搜索还支持")
     cuttest("干脆就把那部蒙人的闲法给废了拉倒！RT @laoshipukong : 27日，全国人大常委会第三次审议侵权责任法草案，删除了有关医疗损害责任“举证倒置”的规定。在医患纠纷中本已处于弱势地位的消费者由此将陷入万劫不复的境地。 ")
     cuttest("大")
@@ -97,3 +98,4 @@ if __name__ == "__main__":
     cuttest('AT&T是一件不错的公司，给你发offer了吗？')
     cuttest('C++和c#是什么关系？11+122=133，是吗？PI=3.14159')
     cuttest('你认识那个和主席握手的的哥吗？他开一辆黑色的士。')
+

@@ -1,14 +1,15 @@
 #encoding=utf-8
-from __future__ import print_function
+import logging
 import sys
 sys.path.append("../")
 import jieba_fast_dat.posseg as pseg
 
 def cuttest(test_sent):
     result = pseg.cut(test_sent, HMM=False)
+    output = []
     for word, flag in result:
-        print(word, "/", flag, ", ", end=' ')
-    print("")
+        output.append(f"{word} / {flag}")
+    logging.info(", ".join(output))
 
 
 if __name__ == "__main__":
@@ -66,8 +67,8 @@ if __name__ == "__main__":
     cuttest(",使用了它就可以解决一些问题")
     cuttest("其实使用了它就可以解决一些问题")
     cuttest("好人使用了它就可以解决一些问题")
-    cuttest("是因为和国家")
-    cuttest("老年搜索还支持")
+    cuttest("是因為和國家")
+    cuttest("老年搜索還支持")
     cuttest("干脆就把那部蒙人的闲法给废了拉倒！RT @laoshipukong : 27日，全国人大常委会第三次审议侵权责任法草案，删除了有关医疗损害责任“举证倒置”的规定。在医患纠纷中本已处于弱势地位的消费者由此将陷入万劫不复的境地。 ")
     cuttest("大")
     cuttest("")

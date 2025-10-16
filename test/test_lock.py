@@ -4,14 +4,15 @@
 import os
 import jieba_fast_dat as jieba
 import threading
+import logging
 
 _cur_dir = os.path.dirname(os.path.abspath(__file__))
 _abs_path_dict_small = os.path.join(_cur_dir, '..', 'extra_dict', 'dict.txt.small')
 
 def inittokenizer(tokenizer, group):
-	print('===> Thread %s:%s started' % (group, threading.current_thread().ident))
+	logging.info(f'===> Thread {group}:{threading.current_thread().ident} started')
 	tokenizer.initialize()
-	print('<=== Thread %s:%s finished' % (group, threading.current_thread().ident))
+	logging.info(f'<=== Thread {group}:{threading.current_thread().ident} finished')
 
 tokrs1 = [jieba.Tokenizer() for n in range(5)]
 tokrs2 = [jieba.Tokenizer(_abs_path_dict_small) for n in range(5)]
@@ -29,7 +30,7 @@ for thr in thr2:
 
 del tokrs1, tokrs2
 
-print('='*40)
+logging.info('='*40)
 
 tokr1 = jieba.Tokenizer()
 tokr2 = jieba.Tokenizer(_abs_path_dict_small)

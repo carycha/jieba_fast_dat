@@ -6,6 +6,7 @@ sys.path.append("../")
 from whoosh.index import create_in,open_dir
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
+import logging
 
 from jieba_fast_dat.analyse import ChineseAnalyzer 
 
@@ -20,9 +21,9 @@ searcher = ix.searcher()
 parser = QueryParser("content", schema=ix.schema)
 
 for keyword in ("水果小姐","你","first","中文","交换机","交换","少林","乔峰"):
-    print("result of ",keyword)
+    logging.info("result of ",keyword)
     q = parser.parse(keyword)
     results = searcher.search(q)
     for hit in results:  
-        print(hit.highlights("content"))
-    print("="*10)
+        logging.info(hit.highlights("content"))
+    logging.info("="*10)

@@ -1,12 +1,13 @@
 #encoding=utf-8
 import sys
+import logging
 sys.path.append("../")
 import jieba_fast_dat as jieba
 
 
 def cuttest(test_sent):
     result = jieba.cut(test_sent,HMM=False)
-    print(" / ".join(result))
+    logging.info(" / ".join(result))
 
 
 if __name__ == "__main__":

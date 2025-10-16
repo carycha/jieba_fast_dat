@@ -1,11 +1,11 @@
 #encoding=utf-8
-from __future__ import print_function, unicode_literals
 import sys
 import os
 import pytest
 sys.path.append("../")
 import jieba_fast_dat as jieba
 import jieba_fast_dat.posseg as pseg
+import logging
 
 @pytest.fixture(scope="module")
 def userdict_file(tmp_path_factory):
@@ -42,7 +42,7 @@ def test_userdict_modification_and_reload(userdict_file):
     words_modified = jieba.lcut(test_sent_modified)
     assert "新词" in words_modified
 
-# Original test_sent and related prints (adapted)
+# Original test_sent and related logging.infos (adapted)
 test_sent_original = (
 "李小福是创新办主任也是云计算方面的专家; 什么是八一双鹿\n"
 "例如我输入一个带“韩玉赏鉴”的标题，在自定义词库中也增加了此词为N类\n"
@@ -51,19 +51,19 @@ test_sent_original = (
 
 def test_original_cut():
     words = jieba.cut(test_sent_original)
-    # print('/'.join(words)) # For manual inspection
+    # logging.info('/'.join(words)) # For manual inspection
     assert len(list(words)) > 0 # Just ensure it cuts something
 
 def test_original_posseg():
     result = pseg.cut(test_sent_original)
     # for w in result:
-    #     print(w.word, "/", w.flag, ", ', end=' ') # For manual inspection
+    #     logging.info(w.word, "/", w.flag, ", ', end=' ') # For manual inspection
     assert len(list(result)) > 0 # Just ensure it processes something
 
 def test_english_and_regex_cut():
     terms = jieba.cut('easy_install is great')
-    # print('/'.join(terms)) # For manual inspection
+    # logging.info('/'.join(terms)) # For manual inspection
     assert "easy_install" in list(terms)
     terms = jieba.cut('python 的正则表达式是好用的')
-    # print('/'.join(terms)) # For manual inspection
+    # logging.info('/'.join(terms)) # For manual inspection
     assert "python" in list(terms)

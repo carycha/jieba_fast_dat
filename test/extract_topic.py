@@ -10,10 +10,11 @@ import glob
 import sys
 import os
 import random
+import logging
 
 if __name__ == '__main__':
     if len(sys.argv)<2:
-        print("usage: extract_topic.py directory [n_topic] [n_top_words]")
+        logging.info("usage: extract_topic.py directory [n_topic] [n_top_words]")
         sys.exit(0)
 
     n_topic = 10
@@ -29,36 +30,36 @@ if __name__ == '__main__':
     docs = []
 
     pattern = os.path.join(sys.argv[1],"*.txt") 
-    print("read "+pattern)
+    logging.info("read "+pattern)
 
     for f_name in glob.glob(pattern):
         with open(f_name) as f:
-            print("read file:", f_name)
+            logging.info("read file:", f_name)
             for line in f: #one line as a document
                 words = " ".join(jieba.cut(line))
                 docs.append(words)
 
     random.shuffle(docs)
 
-    print("read done.")
+    logging.info("read done.")
 
-    print("transform")
+    logging.info("transform")
     counts = count_vect.fit_transform(docs)
     tfidf = TfidfTransformer().fit_transform(counts)
-    print(tfidf.shape)
+    logging.info(tfidf.shape)
 
 
     t0 = time.time()
-    print("training...")
+    logging.info("training...")
 
     nmf = decomposition.NMF(n_components=n_topic).fit(tfidf)
-    print("done in %0.3fs." % (time.time() - t0))
+    logging.info("done in %0.3fs." % (time.time() - t0))
 
     # Inverse the vectorizer vocabulary to be able
     feature_names = count_vect.get_feature_names()
 
     for topic_idx, topic in enumerate(nmf.components_):
-        print("Topic #%d:" % topic_idx)
-        print(" ".join([feature_names[i]
+        logging.info("Topic #%d:" % topic_idx)
+        logging.info(" ".join([feature_names[i]
                         for i in topic.argsort()[:-n_top_words - 1:-1]]))
-        print("")
+        logging.info("")

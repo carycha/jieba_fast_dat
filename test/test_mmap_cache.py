@@ -4,6 +4,8 @@ import tempfile
 import shutil
 import pytest
 from unittest.mock import patch
+import logging
+
 
 import jieba_fast_dat as jieba
 
@@ -30,7 +32,7 @@ def test_mmap_cache_behavior():
     start_time = time.time()
     jieba.dt.initialize(default_dict_path)
     first_load_time = time.time() - start_time
-    print(f"First load time (default dict): {first_load_time:.4f} seconds")
+    logging.info(f"First load time (default dict): {first_load_time:.4f} seconds")
 
     assert os.path.exists(cache_file_path_default + ".trie")
     assert os.path.getsize(cache_file_path_default + ".trie") > 0
@@ -42,7 +44,7 @@ def test_mmap_cache_behavior():
     start_time = time.time()
     jieba.dt.initialize(default_dict_path)
     second_load_time = time.time() - start_time
-    print(f"Second load time (default dict with cache): {second_load_time:.4f} seconds")
+    logging.info(f"Second load time (default dict with cache): {second_load_time:.4f} seconds")
 
     assert second_load_time < first_load_time
     assert first_load_time / second_load_time > 2 # Expect significant speedup
@@ -71,7 +73,7 @@ def test_mmap_cache_behavior():
     start_time = time.time()
     jieba.dt.initialize(temp_invalidation_dict_path)
     third_load_time = time.time() - start_time
-    print(f"Third load time (after temp dict modification): {third_load_time:.4f} seconds")
+    logging.info(f"Third load time (after temp dict modification): {third_load_time:.4f} seconds")
 
     # The third load should be similar to a first load (rebuilding cache)
     # We can't directly compare to first_load_time because dicts are different sizes

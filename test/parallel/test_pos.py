@@ -1,5 +1,5 @@
 #encoding=utf-8
-from __future__ import print_function
+import logging
 import sys
 sys.path.append("../../")
 import jieba_fast_dat as jieba
@@ -8,9 +8,10 @@ import jieba_fast_dat.posseg as pseg
 
 def cuttest(test_sent):
     result = pseg.cut(test_sent)
+    output = []
     for w in result:
-        print(w.word, "/", w.flag, ", ", end=' ')  
-    print("")
+        output.append(f"{w.word} / {w.flag}")
+    logging.info(", ".join(output))
 
 
 if __name__ == "__main__":

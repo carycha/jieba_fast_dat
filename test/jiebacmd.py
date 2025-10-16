@@ -6,8 +6,8 @@ cat abc.txt | python jiebacmd.py | sort | uniq -c | sort -nr -k1 | head -100
 
 '''
 
-from __future__ import unicode_literals
 import sys
+import logging
 sys.path.append("../")
 
 import jieba_fast_dat as jieba
@@ -24,6 +24,6 @@ if __name__ == '__main__':
             break
         line = line.strip()
         for word in jieba.cut(line):
-            print(word)
+            logging.info(word)
 
 

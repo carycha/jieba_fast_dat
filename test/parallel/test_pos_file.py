@@ -1,4 +1,4 @@
-from __future__ import print_function
+import logging
 import sys,time
 import sys
 sys.path.append("../../")
@@ -18,5 +18,4 @@ tm_cost = t2-t1
 log_f = open("1.log","w")
 log_f.write(' / '.join(map(str, words)))
 
-print('speed' , len(content)/tm_cost, " bytes/second")
-
+logging.info(f'speed {len(content)/tm_cost} bytes/second')

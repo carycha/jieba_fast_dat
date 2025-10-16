@@ -1,6 +1,8 @@
 import os
 import time
 import sys
+import logging
+
 sys.path.append("../")
 import jieba_fast_dat as jieba
 jieba.initialize()
@@ -18,6 +20,6 @@ def test_file_processing():
     assert len(words) > 0
     assert tm_cost > 0
 
-    print('cost ' + str(tm_cost))
-    print('speed %s bytes/second' % (len(content)/tm_cost))
+    logging.info('cost ' + str(tm_cost))
+    logging.info('speed %s bytes/second' % (len(content)/tm_cost))
 

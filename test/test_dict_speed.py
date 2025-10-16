@@ -3,6 +3,7 @@ import os
 import pytest
 import shutil
 import jieba_fast_dat as jieba
+import logging
 
 # Assuming the default dictionary is used for speed testing
 # We'll use the actual dict.txt from the package for this test
@@ -25,7 +26,7 @@ def test_dictionary_loading_speed():
     start_time = time.time()
     jieba.dt.initialize(big_dict_path)
     first_load_time = time.time() - start_time
-    print(f"First load time (dict.txt.big): {first_load_time:.4f} seconds")
+    logging.info(f"First load time (dict.txt.big): {first_load_time:.4f} seconds")
     # dict.txt.big is large, so initial load might take several seconds
     assert first_load_time < 10.0, f"First load of dict.txt.big took too long: {first_load_time:.4f}s"
 
@@ -34,7 +35,7 @@ def test_dictionary_loading_speed():
     start_time = time.time()
     jieba.dt.initialize(big_dict_path)
     second_load_time = time.time() - start_time
-    print(f"Second load time (dict.txt.big with cache): {second_load_time:.4f} seconds")
+    logging.info(f"Second load time (dict.txt.big with cache): {second_load_time:.4f} seconds")
     assert second_load_time < 1.0, f"Second load of dict.txt.big took too long: {second_load_time:.4f}s"
     assert second_load_time < first_load_time, "Second load was not faster than the first load, caching might not be effective."
     assert first_load_time / second_load_time > 3, "Speedup from caching for dict.txt.big is not significant enough."
@@ -44,7 +45,7 @@ def test_dictionary_loading_speed():
     start_time = time.time()
     jieba.dt.initialize(big_dict_path)
     third_load_time = time.time() - start_time
-    print(f"Third load time (dict.txt.big no change): {third_load_time:.4f} seconds")
+    logging.info(f"Third load time (dict.txt.big no change): {third_load_time:.4f} seconds")
     assert third_load_time <= second_load_time * 1.1, f"Third load of dict.txt.big took too long: {third_load_time:.4f}s"
     assert third_load_time <= second_load_time * 1.1, "Third load was significantly slower than the second load, caching might be unstable."
 
