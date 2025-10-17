@@ -5,6 +5,9 @@
 ### E. 進度管理與待辦事項 (Progress & To-Do)
 
 *   **TODO:**
+    *   研究 `yanyiwu/cppjieba` 專案的算法以優化 `jieba_fast_dat`
+    *   研究sentencepiece與fasttext優化本專案的可能性
+    *   研究與實現 CPU 優化的知識圖譜萃取 算法
     *   研究與評估 CPU 優化的中文 POS 算法
     *   研究與評估 CPU 優化的中文依存句法分析器 算法
     *   研究與評估 CPU 優化的中文命名實體識別 (NER) 算法
@@ -55,10 +58,10 @@
     *   **實現**: 核心詞典結構，透過 `darts-clone` 庫在 C++ 中實現 (`jieba_fast_dat/source/jieba_fast_functions_pybind.cpp` 的 `JiebaDict` 類別)。
     *   **功能**: 提供高效的詞語儲存、查詢 (`contains_word`) 和前綴匹配 (`common_prefix_search`)，是分詞詞圖構建的基礎。
     *   **優勢**: 記憶體佔用低，查詢速度極快，適用於大型詞典。
-*   **Viterbi 算法**:
-    *   **分詞**: 在 C++ 層實現 (`_calc`, `_get_DAG_and_calc` 函數)，用於在詞圖 (DAG) 上尋找最佳詞語路徑，實現精確分詞。
-    *   **詞性標注**: 在 C++ 層實現 (`_viterbi` 函數)，基於隱馬爾可夫模型 (HMM) 進行詞性標注，程式碼中暗示使用 BEMS (Begin, Middle, End, Single) 狀態。
-*   **TF-IDF (Term Frequency-Inverse Document Frequency)**:
+    *   **Viterbi 算法**:
+        *   **分詞**: 在 C++ 層實現 (`_calc`, `_get_DAG_and_calc` 函數)，用於在詞圖 (DAG) 上尋找最佳詞語路徑，實現精確分詞。
+        *   **詞性標注**: 在 C++ 層實現 (`_viterbi` 函數)，基於隱馬爾可夫模型 (HMM) 進行詞性標注，程式碼中暗示使用 BEMS (Begin, Middle, End, Single) 狀態。
+        *   **與 `cppjieba` 的差異**: `cppjieba` 使用專門的 C++ `HMMModel` 類別在原生 C++ 層儲存 HMM 機率 (起始、轉移、發射機率)，實現高效存取。而 `jieba_fast_dat` 目前在 C++ 的 `_viterbi` 函數中，HMM 機率是透過 Python 字典傳遞，這導致在頻繁查詢機率時產生顯著的 Python-C++ 互操作開銷。*   **TF-IDF (Term Frequency-Inverse Document Frequency)**:
     *   **實現**: Python 層 (`jieba_fast_dat/analyse/tfidf.py` 的 `TFIDF` 類別)。
     *   **功能**: 根據詞語在文檔中的頻率和在語料庫中的稀有程度，評估詞語的重要性，用於關鍵詞提取。
 *   **TextRank**:
