@@ -1,22 +1,22 @@
 from __future__ import print_function
-import sys,time
 import sys
-sys.path.append("../../")
-import jieba
-import jieba.posseg as pseg
+import time
 
-jieba.enable_parallel(4)
+sys.path.append("../../")
+import jieba_fast_dat
+import jieba_fast_dat.posseg as pseg
+
+jieba_fast_dat.enable_parallel(4)
 
 url = sys.argv[1]
-content = open(url,"rb").read()
+content = open(url, "rb").read()
 t1 = time.time()
 words = list(pseg.cut(content))
 
 t2 = time.time()
-tm_cost = t2-t1
+tm_cost = t2 - t1
 
-log_f = open("1.log","w")
-log_f.write(' / '.join(map(str, words)))
+log_f = open("1.log", "w")
+log_f.write(" / ".join(map(str, words)))
 
-print('speed' , len(content)/tm_cost, " bytes/second")
-
+print("speed", len(content) / tm_cost, " bytes/second")

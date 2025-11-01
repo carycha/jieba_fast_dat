@@ -1,14 +1,17 @@
-#encoding=utf-8
+# encoding=utf-8
 from __future__ import print_function
 import sys
+
 sys.path.append("../../")
-import jieba
-jieba.enable_parallel(4)
+import jieba_fast_dat
+
+jieba_fast_dat.enable_parallel(4)
+
 
 def cuttest(test_sent):
-    result = jieba.cut_for_search(test_sent)
+    result = jieba_fast_dat.cut_for_search(test_sent)
     for word in result:
-        print(word, "/", end=' ') 
+        print(word, "/", end=" ")
     print("")
 
 
@@ -69,7 +72,9 @@ if __name__ == "__main__":
     cuttest("好人使用了它就可以解决一些问题")
     cuttest("是因为和国家")
     cuttest("老年搜索还支持")
-    cuttest("干脆就把那部蒙人的闲法给废了拉倒！RT @laoshipukong : 27日，全国人大常委会第三次审议侵权责任法草案，删除了有关医疗损害责任“举证倒置”的规定。在医患纠纷中本已处于弱势地位的消费者由此将陷入万劫不复的境地。 ")
+    cuttest(
+        "干脆就把那部蒙人的闲法给废了拉倒！RT @laoshipukong : 27日，全国人大常委会第三次审议侵权责任法草案，删除了有关医疗损害责任“举证倒置”的规定。在医患纠纷中本已处于弱势地位的消费者由此将陷入万劫不复的境地。 "
+    )
     cuttest("大")
     cuttest("")
     cuttest("他说的确实在理")
@@ -85,11 +90,11 @@ if __name__ == "__main__":
     cuttest("BP神经网络如何训练才能在分类时增加区分度？")
     cuttest("南京市长江大桥")
     cuttest("应一些使用者的建议，也为了便于利用NiuTrans用于SMT研究")
-    cuttest('长春市长春药店')
-    cuttest('邓颖超生前最喜欢的衣服')
-    cuttest('胡锦涛是热爱世界和平的政治局常委')
-    cuttest('程序员祝海林和朱会震是在孙健的左面和右面, 范凯在最右面.再往左是李松洪')
-    cuttest('一次性交多少钱')
-    cuttest('两块五一套，三块八一斤，四块七一本，五块六一条')
-    cuttest('小和尚留了一个像大和尚一样的和尚头')
-    cuttest('我是中华人民共和国公民;我爸爸是共和党党员; 地铁和平门站')
+    cuttest("长春市长春药店")
+    cuttest("邓颖超生前最喜欢的衣服")
+    cuttest("胡锦涛是热爱世界和平的政治局常委")
+    cuttest("程序员祝海林和朱会震是在孙健的左面和右面, 范凯在最右面.再往左是李松洪")
+    cuttest("一次性交多少钱")
+    cuttest("两块五一套，三块八一斤，四块七一本，五块六一条")
+    cuttest("小和尚留了一个像大和尚一样的和尚头")
+    cuttest("我是中华人民共和国公民;我爸爸是共和党党员; 地铁和平门站")

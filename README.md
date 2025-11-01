@@ -1,117 +1,118 @@
-[![Downloads](https://pepy.tech/badge/jieba-fast)](https://pepy.tech/project/jieba-fast)
-[![Downloads](https://pepy.tech/badge/jieba-fast/month)](https://pepy.tech/project/jieba-fast)
-[![Downloads](https://pepy.tech/badge/jieba-fast/week)](https://pepy.tech/project/jieba-fast)
+# jieba_fast_dat: 高效能中文分詞與詞性標註工具
 
-jieba_fast
-========
-使用`cpython`重写了jieba分词库中计算DAG和HMM中的vitrebi函数，速度得到大幅提升。
-使用`import jieba_fast as jieba` 可以无缝衔接源代码。
+由於自己在使用時發現隨著字典的增加, 字典載入速度越來越久(甚至超過 10 秒), 
+且原始 [`jieba`](https://github.com/fxsjy/jieba) 與 [`jieba_fast`](https://github.com/deepcs233/jieba_fast) 由於久未維護, 有些依賴已經與現在主流 python 版本已經有警告訊息出現(看著不舒服)
 
-特点
-========
-* 对两种分词模式进行的加速：精确模式，搜索引擎模式
-* 利用`cython`重新实现了viterbi算法，使默认带HMM的切词模式速度大幅提升
-* 利用`cython`重新实现了生成DAG以及从DAG计算最优路径的算法，速度大幅提升
-* 基本只是替换了核心函数，对源代码的侵入型很小
-* MIT 授权协议
+所以在支援原有功能的狀態下(大部分), 進行更新與開發, 主要優化內容如下:
 
+## 技術優化內容
 
+*   **DAT 詞典結構**: 詞典採用均 Double-Array Trie (DAT) 結構，實現低記憶體佔用和極速查詢。
+*   **C++ 核心算法**: 關鍵算法（如 Viterbi）在 C++ 中實現，並透過 `pybind11` 無縫暴露給 Python，結合了 Python 的靈活性和 C++ 的高效能。
+*   **CPU 優先原則**: 所有算法和庫的選擇都符合 CPU 執行效率，不依賴 GPU。
+*   **繁體強化**: 將預設的系統字典與 idf 均直接改用 `jieba` 原廠提供的繁體優化字典, 無須額外修改設定
 
+## 重大差異：為了極速，我們做出一個取捨
 
-安装说明
-=======
+* **不支援動態增加字典**：為了實現 DAT 結構的極速查詢和持久化快取，我們移除了運行時動態增加字典的功能。
+    > ** 替代方案：** 您只需將新字典加入字典檔，重新啟動程式，**快取將自動更新**，依然享受極速！
+* **Python 版本限制**：我們擁抱現代開發！僅支持 **Python >= 3.10**。
 
-代码目前对 Python 2/3 兼容，对*unix兼容良好，windows本地编译测试通过，但不保证。
+## 數字會說話：字典載入速度 **94.83%** 的巨大提升！
 
-* 全自动安装：`pip install jieba_fast`
-* 半自动安装：先下载 http://pypi.python.org/pypi/jieba_fast/ ，解压后运行 `python setup.py install`
+我們用一個包含 **$130$ 萬筆資料**的超大型字典進行了對比。結果顯示：不論是第一次init還是在第二次使用快取時，我們的提升幅度是**巨大**！
 
-关于windows的编译过程中可能会有一些坑，可以尝试我编译好的版本，将编译好的放在了windows/下，分别对应的是python2.7与python3.5。
-如果你想安装python2版本的jiaba_fast，将python2下的所有目录与文件拷至对应python的lib/site-packages下就ok。
+|| 初次 init 花費時間 | cached 花費時間|mmap 提昇速度%|
+|---|---|---|---|
+|jieba_fast| 6.00 s| 4.76 s| 20.69% |
+|**jieba_fast_dat**| **1.58 s**| **0.25 s**| **84.48%** |
+|dat 提昇速度% | **73.59%** | **94.83%** | |
 
-算法
-========
-
-* 基于前缀词典实现高效的词图扫描，生成句子中汉字所有可能成词情况所构成的有向无环图 (DAG)
-* 采用了动态规划查找最大概率路径, 找出基于词频的最大切分组合
-* 对于未登录词，采用了基于汉字成词能力的 HMM 模型，使用了 Viterbi 算法
+## 介紹影片
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/nmaEbAAgpno/0.jpg)](https://www.youtube.com/watch?v=nmaEbAAgpno)
 
 
+## 🚀 安裝
 
-
-主要功能
-=======
-
-详情见 https://github.com/fxsjy/jieba
-
-
-代码示例
-
-```python
-# encoding=utf-8
-import jieba_fast as jieba
-
-text = u'在输出层后再增加CRF层，加强了文本间信息的相关性，针对序列标注问题，每个句子的每个词都有一个标注结果，对句子中第i个词进行高维特征的抽取，通过学习特征到标注结果的映射，可以得到特征到任>      意标签的概率，通过这些概率，得到最优序列结果'
-
-print("-".join(jieba.lcut(text, HMM=True))
-print('-'.join(jieba.lcut(text, HMM=False)))
-
+安裝最新
+```bash
+pip install git+https://github.com/carycha/jieba_fast_dat
+```
+安裝指定版號
+```bash
+pip install git+https://github.com/carycha/jieba_fast_dat@0.54
 ```
 
-输出:
+## 🛠️ 使用方式
+
+### 基本分詞
 
 ```python
-在-输出-层后-再-增加-CRF-层-，-加强-了-文本-间-信息-的-相关性-，-针对-序列-标注-问题-，-每个-句子-的-每个-词-都-有-一个-标注-结果-，-对-句子-中-第-i-个-词-进行-高维-特征-的-抽取-，-通过-学习-特征-到-标注-结果-的-映射-，-可以-得到-特征-到-任意-标签-的-概率-，-通过-这些-概率-，-得到-最优-序列-结果
+import jieba_fast_dat as jieba
+
+text = "雨要下到什麼時候？氣象署：今雨勢最猛　週日長榮馬拉松要穿雨衣"
+print("精確模式:", "/".join(jieba.cut(text)))
+print("全模式:", "/".join(jieba.cut(text, cut_all=True)))
+print("搜尋引擎模式:", "/".join(jieba.cut_for_search(text)))
 ```
+
+### 詞性標註
 
 ```python
-在-输出-层-后-再-增加-CRF-层-，-加强-了-文本-间-信息-的-相关性-，-针对-序列-标注-问题-，-每个-句子-的-每个-词-都-有-一个-标注-结果-，-对-句子-中-第-i-个-词-进行-高维-特征-的-抽取-，-通过-学习-特征-到-标注-结果-的-映射-，-可以-得到-特征-到-任意-标签-的-概率-，-通过-这些-概率-，-得到-最优-序列-结果
+import jieba_fast_dat.posseg as pseg
+
+text = "雨要下到什麼時候？氣象署：今雨勢最猛　週日長榮馬拉松要穿雨衣"
+words = pseg.cut(text)
+for word, flag in words:
+    print(f"{word}/{flag}")
 ```
 
-
-
-
-性能测试
-=======
-测试机器 mbp17， i7， 16G
-
-测试过程：
-先按行读取文本《围城》到一个数组里，然后循环对《围城》每行文字作为一个句子进行分词。然后循环对围城这本书分词50次。分词算法分别采用【开启HMM的精确模式】、【关闭HMM的精确模式】、【开启HMM的搜索引擎模式】、【开启HMM的搜索引擎模式】
-具体测试数据如下：
-
-
-|            | 开启HMM的精确模式 | 关闭HMM的精确模式 | 开启HMM的搜索引擎模式 | 关闭HMM的搜索引擎模式 |
-| ---------- | ---------- | ---------- | ------------ | ------------ |
-| jieba      | 65.1s      | 39.9s      | 67.5s        | 40.5s        |
-| jieba_fast | 24.5s      | 18.2s      | 25.3s        | 20.4s        |
-
-可以看出在开启HMM模式下时间缩减了60%左右，关闭HMM时时间缩减了50%左右。
-
-
-
- 一致性测试
-======
-
-为了保证jieba_fast和jieba分词结果相同，做了如下测试。
-
-对《围城》，《红楼梦》分词结果进行比较，其分词结果完全一致
+### 載入使用者詞典
 
 ```python
----- Test of 围城 ----
-nums of jieba      results:  164821
-nums of jieba_fast results:  164821
-Are they exactly the same?  True
-----Test of 红楼梦 ----
-nums of jieba      results:  597151
-nums of jieba_fast results:  597151
-Are they exactly the same?  True
+import jieba_fast_dat as jieba
+
+# userdict.txt 範例內容:
+# 創新模式 3
+# 程式設計 5 n
+jieba.load_userdict("userdict.txt")
+print("載入使用者詞典後:", "/".join(jieba.cut("雨要下到什麼時候？氣象署：今雨勢最猛　週日長榮馬拉松要穿雨衣")))
 ```
 
+## 分詞與詞性標註結果比較
+統一用以下文字測試
 
+```
+東北季風發威！4縣市豪大雨特報「雨下整夜」　一路濕到這天
+```
+### 分詞差異
+|模式 | 原始 jieba_fast | **jieba_fast_dat** |
+|---|---|---|
+|HMM OFF|東/北/季/風/發/威/！/4/縣/市/豪/大雨/特/報/「/雨/下/整夜/」/　/一路/濕/到/這/天|**東北/季風/發威/！/4/縣市/豪/大雨/特報/「/雨/下/整夜/」/　/一路/濕/到/這天**|
+|HMM ON|東北/季風/發威/！/4/縣市/豪/大雨/特報/「/雨下/整夜/」/　/一路/濕到/這天|**東北/季風/發威/！/4/縣市/豪/大雨/特報/「/雨下/整夜/」/　/一路/濕到/這天**|
+### 詞性標注差異
+|模式 | 原始 jieba_fast | **jieba_fast_dat** |
+|---|---|---|
+|HMM OFF| 東/zg 北/ns 季/n 風/zg 發/zg 威/ns ！/x 4/eng 縣/x 市/n 豪/n 大雨/n 特/d 報/zg 「/x 雨/n 下/f 整夜/b 」/x  /x 一路/m 濕/x 到/v 這/zg 天/q | **東北/ns 季風/n 發威/v ！/x 4/eng 縣市/n 豪/n 大雨/n 特報/n 「/x 雨/n 下/f 整夜/b 」/x 　/x 一路/m 濕/x 到/v 這天/r**|
+|HMM ON| 東北/ns 季風/n 發威/v ！/x 4/m 縣/n 市豪/n 大雨/n 特報/n 「/x 雨/n 下/f 整夜/b 」/x 　/x 一路/m 濕到/v 這天/r| **東北/ns 季風/n 發威/v ！/x 4/x 縣市/n 豪/n 大雨/n 特報/n 「/x 雨/n 下/f 整夜/b 」/x 　/x 一路/m 濕到/x 這天/r**|
 
-鸣谢
-======
+## 支持與鼓勵
+如果您重視效率、速度、穩定性，並認同我們為中文 NLP 提昇的小小貢獻：
 
-"结巴"中文分词作者: [SunJunyi](https://github.com/fxsjy)
+⭐ 點擊 Star！ 您的肯定是我們持續開發的最大動力！
 
-源码见 source/
+📢 轉發擴散！ 讓所有還在飽受載入慢之苦的開發者知道這個工具！
+
+🤝 提出 Issue/PR！ 歡迎加入我們，讓這個神器更加完美！
+
+## 📄 許可證
+
+`jieba_fast_dat` 採用 MIT 許可證。詳情請參閱 `LICENSE` 文件。
+
+## 🤝 貢獻
+
+歡迎任何形式的貢獻！如果您有任何建議、功能請求或錯誤報告，請隨時提出 Issue 或提交 Pull Request。
+
+## 🌟 鳴謝
+
+本專案基於 [jieba](https://github.com/fxsjy/jieba) 與 [jieba_fast](https://github.com/deepcs233/jieba_fast) 庫進行優化和增強。感謝原作者及所有貢獻者。

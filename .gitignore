@@ -105,3 +105,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+extra_dict/dict.txt.big.tw_nerd.txt
+GEMIN*.*
+openspec/
+script
+tmp/
+.ruff_cache

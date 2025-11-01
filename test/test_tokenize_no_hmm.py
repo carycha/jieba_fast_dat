@@ -1,106 +1,120 @@
-#encoding=utf-8
-from __future__ import print_function,unicode_literals
-import sys
-sys.path.append("../")
-import jieba
+import os
+import pytest
+import jieba_fast_dat
 
-g_mode="default"
+# Define paths to our test resources
+TEST_DICTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_dicts")
+TEST_TEXTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_texts")
+DICT_BASE_PATH = os.path.join(TEST_DICTS_DIR, "test_dict_base.txt")
+USER_DICT_BASE_PATH = os.path.join(TEST_DICTS_DIR, "test_user_dict_base.txt")
+MAIN_TEST_TEXT_PATH = os.path.join(TEST_TEXTS_DIR, "main_test_text.txt")
 
-def cuttest(test_sent):
-    global g_mode
-    result = jieba.tokenize(test_sent,mode=g_mode,HMM=False)
-    for tk in result:
-        print("word %s\t\t start: %d \t\t end:%d" % (tk[0],tk[1],tk[2]))
+@pytest.fixture
+def custom_tokenizer_no_hmm():
+    """
+    Fixture that provides a Tokenizer instance initialized with custom base and user dictionaries.
+    Tests will explicitly pass HMM=False.
+    """
+    tokenizer = jieba_fast_dat.Tokenizer()
+    tokenizer.set_dictionary(DICT_BASE_PATH)
+    tokenizer.initialize()
+    # Manually add words from test_user_dict_base.txt
+    with open(USER_DICT_BASE_PATH, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(' ')
+            word = parts[0]
+            freq = int(parts[1]) if len(parts) > 1 else None
+            tag = parts[2] if len(parts) > 2 else None
+            tokenizer.add_word(word, freq, tag)
+
+    return tokenizer
 
 
-if __name__ == "__main__":
-    for m in ("default","search"):
-        g_mode = m
-        cuttest("这是一个伸手不见五指的黑夜。我叫孙悟空，我爱北京，我爱Python和C++。")
-        cuttest("我不喜欢日本和服。")
-        cuttest("雷猴回归人间。")
-        cuttest("工信处女干事每月经过下属科室都要亲口交代24口交换机等技术性器件的安装工作")
-        cuttest("我需要廉租房")
-        cuttest("永和服装饰品有限公司")
-        cuttest("我爱北京天安门")
-        cuttest("abc")
-        cuttest("隐马尔可夫")
-        cuttest("雷猴是个好网站")
-        cuttest("“Microsoft”一词由“MICROcomputer（微型计算机）”和“SOFTware（软件）”两部分组成")
-        cuttest("草泥马和欺实马是今年的流行词汇")
-        cuttest("伊藤洋华堂总府店")
-        cuttest("中国科学院计算技术研究所")
-        cuttest("罗密欧与朱丽叶")
-        cuttest("我购买了道具和服装")
-        cuttest("PS: 我觉得开源有一个好处，就是能够敦促自己不断改进，避免敞帚自珍")
-        cuttest("湖北省石首市")
-        cuttest("湖北省十堰市")
-        cuttest("总经理完成了这件事情")
-        cuttest("电脑修好了")
-        cuttest("做好了这件事情就一了百了了")
-        cuttest("人们审美的观点是不同的")
-        cuttest("我们买了一个美的空调")
-        cuttest("线程初始化时我们要注意")
-        cuttest("一个分子是由好多原子组织成的")
-        cuttest("祝你马到功成")
-        cuttest("他掉进了无底洞里")
-        cuttest("中国的首都是北京")
-        cuttest("孙君意")
-        cuttest("外交部发言人马朝旭")
-        cuttest("领导人会议和第四届东亚峰会")
-        cuttest("在过去的这五年")
-        cuttest("还需要很长的路要走")
-        cuttest("60周年首都阅兵")
-        cuttest("你好人们审美的观点是不同的")
-        cuttest("买水果然后来世博园")
-        cuttest("买水果然后去世博园")
-        cuttest("但是后来我才知道你是对的")
-        cuttest("存在即合理")
-        cuttest("的的的的的在的的的的就以和和和")
-        cuttest("I love你，不以为耻，反以为rong")
-        cuttest("因")
-        cuttest("")
-        cuttest("hello你好人们审美的观点是不同的")
-        cuttest("很好但主要是基于网页形式")
-        cuttest("hello你好人们审美的观点是不同的")
-        cuttest("为什么我不能拥有想要的生活")
-        cuttest("后来我才")
-        cuttest("此次来中国是为了")
-        cuttest("使用了它就可以解决一些问题")
-        cuttest(",使用了它就可以解决一些问题")
-        cuttest("其实使用了它就可以解决一些问题")
-        cuttest("好人使用了它就可以解决一些问题")
-        cuttest("是因为和国家")
-        cuttest("老年搜索还支持")
-        cuttest("干脆就把那部蒙人的闲法给废了拉倒！RT @laoshipukong : 27日，全国人大常委会第三次审议侵权责任法草案，删除了有关医疗损害责任“举证倒置”的规定。在医患纠纷中本已处于弱势地位的消费者由此将陷入万劫不复的境地。 ")
-        cuttest("大")
-        cuttest("")
-        cuttest("他说的确实在理")
-        cuttest("长春市长春节讲话")
-        cuttest("结婚的和尚未结婚的")
-        cuttest("结合成分子时")
-        cuttest("旅游和服务是最好的")
-        cuttest("这件事情的确是我的错")
-        cuttest("供大家参考指正")
-        cuttest("哈尔滨政府公布塌桥原因")
-        cuttest("我在机场入口处")
-        cuttest("邢永臣摄影报道")
-        cuttest("BP神经网络如何训练才能在分类时增加区分度？")
-        cuttest("南京市长江大桥")
-        cuttest("应一些使用者的建议，也为了便于利用NiuTrans用于SMT研究")
-        cuttest('长春市长春药店')
-        cuttest('邓颖超生前最喜欢的衣服')
-        cuttest('胡锦涛是热爱世界和平的政治局常委')
-        cuttest('程序员祝海林和朱会震是在孙健的左面和右面, 范凯在最右面.再往左是李松洪')
-        cuttest('一次性交多少钱')
-        cuttest('两块五一套，三块八一斤，四块七一本，五块六一条')
-        cuttest('小和尚留了一个像大和尚一样的和尚头')
-        cuttest('我是中华人民共和国公民;我爸爸是共和党党员; 地铁和平门站')
-        cuttest('张晓梅去人民医院做了个B超然后去买了件T恤')
-        cuttest('AT&T是一件不错的公司，给你发offer了吗？')
-        cuttest('C++和c#是什么关系？11+122=133，是吗？PI=3.14159')
-        cuttest('你认识那个和主席握手的的哥吗？他开一辆黑色的士。')
-        cuttest('枪杆子中出政权')
-        cuttest('张三风同学走上了不归路')
-        cuttest('阿Q腰间挂着BB机手里拿着大哥大，说：我一般吃饭不AA制的。')
-        cuttest('在1号店能买到小S和大S八卦的书。')
+def test_tokenize_no_hmm_default_mode_basic(custom_tokenizer_no_hmm):
+    """
+    Test tokenize in "default" mode with HMM=False and custom dictionaries.
+    """
+    tokenizer = custom_tokenizer_no_hmm
+    test_sent = "賴清德是台灣的政治人物。"
+    tokens = list(tokenizer.tokenize(test_sent, mode="default", HMM=False))
+    
+    expected_tokens = [
+        ("賴清德", 0, 3),
+        ("是", 3, 4),
+        ("台灣", 4, 6),
+        ("的", 6, 7),
+        ("政治人物", 7, 11),
+        ("。", 11, 12)
+    ]
+    assert tokens == expected_tokens
+
+def test_tokenize_no_hmm_search_mode_basic(custom_tokenizer_no_hmm):
+    """
+    Test tokenize in "search" mode with HMM=False and custom dictionaries.
+    """
+    tokenizer = custom_tokenizer_no_hmm
+    test_sent = "人工智慧是熱門技術"
+    tokens = list(tokenizer.tokenize(test_sent, mode="search", HMM=False))
+    
+    # In search mode, it yields finer segmentation and overlapping words
+    expected_tokens_present = [
+        ("人工智慧", 0, 4),
+        ("人工", 0, 2),
+        ("智慧", 2, 4),
+        ("是", 4, 5),
+        ("熱門", 5, 7),
+        ("技術", 7, 9)
+    ]
+    for expected_token in expected_tokens_present:
+        assert expected_token in tokens, f"Expected {expected_token} not found in {tokens}"
+
+def test_tokenize_no_hmm_empty_sentence(custom_tokenizer_no_hmm):
+    """
+    Test tokenize functionality with HMM=False and an empty sentence.
+    """
+    tokenizer = custom_tokenizer_no_hmm
+    test_sent = ""
+    tokens = list(tokenizer.tokenize(test_sent, mode="default", HMM=False))
+    assert len(tokens) == 0
+
+def test_non_forced_initialization_tokenize_no_hmm():
+    """
+    Test that jieba_fast_dat does not auto-initialize with default dictionaries
+    when a custom tokenizer is intended to be used with tokenize and HMM=False.
+    """
+    # Create a Tokenizer instance without explicit dictionary path
+    tokenizer = jieba_fast_dat.Tokenizer()
+    # Do not call initialize() or set_dictionary() yet
+
+    # Attempt to tokenize a sentence
+    test_sent = "這是一個測試句子。"
+    tokens = list(tokenizer.tokenize(test_sent, mode="default", HMM=False))
+
+    # Assert that it performs some form of tokenization
+    assert len(tokens) > 0
+    assert isinstance(tokens[0][0], str)
+    assert isinstance(tokens[0][1], int)
+    assert isinstance(tokens[0][2], int)
+
+    # Now, explicitly initialize the tokenizer and check if it uses the custom dictionary.
+    tokenizer.set_dictionary(DICT_BASE_PATH)
+    tokenizer.initialize()
+    # Manually add words from test_user_dict_base.txt
+    with open(USER_DICT_BASE_PATH, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(' ')
+            word = parts[0]
+            freq = int(parts[1]) if len(parts) > 1 else None
+            tag = parts[2] if len(parts) > 2 else None
+            tokenizer.add_word(word, freq, tag)
+
+    test_sent_custom = "賴清德是政治人物。"
+    tokens_custom = list(tokenizer.tokenize(test_sent_custom, mode="default", HMM=False))
+    assert ("賴清德", 0, 3) in tokens_custom
+    assert ("政治人物", 4, 8) in tokens_custom

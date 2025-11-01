@@ -1,0 +1,71 @@
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "test",
+]
+norecursedirs = ["test/test.txt"]
+
+[project]
+name = "jieba_fast_dat"
+version = "0.52"
+description = "Use C and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
+dynamic = ["readme"]
+authors = [
+    { name = "Sun, Junyi" },
+    { name = "deepcs233" },
+]
+license = "MIT"
+requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Natural Language :: Chinese (Simplified)",
+    "Natural Language :: Chinese (Traditional)",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Text Processing :: Indexing",
+    "Topic :: Text Processing :: Linguistic",
+]
+keywords = ["NLP", "tokenizing", "Chinese word segementation"]
+
+[project.urls]
+"Homepage" = "https://github.com/deepcs233/jieba_fast_dat"
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "pytest",
+    "pytest-cov",
+    "uv",
+    "setuptools",
+    "build",
+    "pre-commit",
+    "whoosh",
+    "pybind11",
+    "scikit-learn",
+    "ruff",
+]
+
+[tool.setuptools.dynamic]
+readme = {file = "README.md"}
+
+[tool.setuptools.packages]
+find = { include = ["jieba_fast_dat", "jieba_fast_dat.*"] }
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.setuptools.package-data]
+"jieba_fast_dat" = ["*.*", "finalseg/*", "analyse/*", "posseg/*", "source/*"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "pybind11"]
+build-backend = "setuptools.build_meta"

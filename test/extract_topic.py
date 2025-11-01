@@ -1,63 +1,35 @@
-import sys
-sys.path.append("../")
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn import decomposition
 
-import jieba
-import time
-import glob
-import sys
-import os
-import random
+import jieba_fast_dat
 
-if len(sys.argv)<2:
-    print("usage: extract_topic.py directory [n_topic] [n_top_words]")
-    sys.exit(0)
+def test_extract_topic_basic():
+    # Create some dummy documents for testing
+    docs = [
+        "今天 天气 真好 适合 出去 玩",
+        "明天 天气 不好 可能 会 下雨",
+        "今天 晚上 吃 什么 呢 火锅 烧烤",
+        "火锅 烧烤 都 好吃 难以 选择"
+    ]
 
-n_topic = 10
-n_top_words = 25
+    # Tokenize the documents using jieba_fast_dat.cut (simulated here)
+    # In a real scenario, you'd cut raw text. Here, we use pre-tokenized for simplicity.
+    processed_docs = [" ".join(jieba_fast_dat.cut(doc)) for doc in docs]
 
-if len(sys.argv)>2:
-    n_topic = int(sys.argv[2])
+    # Use CountVectorizer
+    count_vect = CountVectorizer()
+    counts = count_vect.fit_transform(processed_docs)
 
-if len(sys.argv)>3:
-    n_top_words = int(sys.argv[3])
+    # Use TfidfTransformer
+    tfidf = TfidfTransformer().fit_transform(counts)
 
-count_vect = CountVectorizer()
-docs = []
+    # Perform NMF (simplified)
+    n_topic = 2
+    nmf = decomposition.NMF(n_components=n_topic).fit(tfidf)
 
-pattern = os.path.join(sys.argv[1],"*.txt") 
-print("read "+pattern)
-
-for f_name in glob.glob(pattern):
-    with open(f_name) as f:
-        print("read file:", f_name)
-        for line in f: #one line as a document
-            words = " ".join(jieba.cut(line))
-            docs.append(words)
-
-random.shuffle(docs)
-
-print("read done.")
-
-print("transform")
-counts = count_vect.fit_transform(docs)
-tfidf = TfidfTransformer().fit_transform(counts)
-print(tfidf.shape)
-
-
-t0 = time.time()
-print("training...")
-
-nmf = decomposition.NMF(n_components=n_topic).fit(tfidf)
-print("done in %0.3fs." % (time.time() - t0))
-
-# Inverse the vectorizer vocabulary to be able
-feature_names = count_vect.get_feature_names()
-
-for topic_idx, topic in enumerate(nmf.components_):
-    print("Topic #%d:" % topic_idx)
-    print(" ".join([feature_names[i]
-                    for i in topic.argsort()[:-n_top_words - 1:-1]]))
-    print("")
+    # Assertions
+    assert counts.shape[0] == len(docs)
+    assert tfidf.shape[0] == len(docs)
+    assert nmf.components_.shape[0] == n_topic
+    assert isinstance(nmf.components_, (list, tuple, type(None))) or nmf.components_.ndim == 2 # Check if it's a 2D array or similar
