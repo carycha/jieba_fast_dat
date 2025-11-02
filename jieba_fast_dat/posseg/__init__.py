@@ -30,13 +30,7 @@ def load_model():
     return state, start_p, trans_p, emit_p
 
 
-if sys.platform.startswith("java"):
-    char_state_tab_P, start_P, trans_P, emit_P = load_model()
-else:
-    from .char_state_tab import P as char_state_tab_P
-    from .prob_start import P as start_P
-    from .prob_trans import P as trans_P
-    from .prob_emit import P as emit_P
+char_state_tab_P, start_P, trans_P, emit_P = load_model()
 
 
 class pair(object):
@@ -49,7 +43,6 @@ class pair(object):
 
     def __repr__(self):
         return "pair(%r, %r)" % (self.word, self.flag)
-
 
     def __iter__(self):
         return iter((self.word, self.flag))
@@ -157,7 +150,10 @@ class POSTokenizer(object):
                 x = y
             else:
                 if buf:
-                    yield pair(buf, "eng")
+                    if re_num.fullmatch(buf):
+                        yield pair(buf, "m")
+                    else:
+                        yield pair(buf, "eng")
                     buf = ""
                 yield pair(l_word, self.word_tag_tab.get(l_word, "x"))
                 x = y
@@ -181,9 +177,7 @@ class POSTokenizer(object):
                 buf += l_word
             else:
                 if buf:
-                    if len(buf) == 1:
-                        yield pair(buf, self.word_tag_tab.get(buf, "x"))
-                    elif not self.tokenizer.get_freq(buf):
+                    if len(buf) == 1 or not self.tokenizer.get_freq(buf):
                         recognized = self.__cut_detail(buf)
                         for t in recognized:
                             yield t
@@ -195,9 +189,7 @@ class POSTokenizer(object):
             x = y
 
         if buf:
-            if len(buf) == 1:
-                yield pair(buf, self.word_tag_tab.get(buf, "x"))
-            elif not self.tokenizer.get_freq(buf):
+            if len(buf) == 1 or not self.tokenizer.get_freq(buf):
                 recognized = self.__cut_detail(buf)
                 for t in recognized:
                     yield t
@@ -227,7 +219,7 @@ class POSTokenizer(object):
                         for xx in x:
                             if re_num.match(xx):
                                 yield pair(xx, "m")
-                            elif re_eng.match(x):
+                            elif re_eng.match(xx):
                                 yield pair(xx, "eng")
                             else:
                                 yield pair(xx, "x")

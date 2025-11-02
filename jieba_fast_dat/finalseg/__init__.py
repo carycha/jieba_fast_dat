@@ -22,24 +22,16 @@ Force_Split_Words = set([])
 
 
 def load_model():
-    start_p = pickle.load(get_module_res("finalseg", PROB_START_P))
+    start_p = pickle.load(get_module_res(__name__, PROB_START_P))
 
-    trans_p = pickle.load(get_module_res("finalseg", PROB_TRANS_P))
+    trans_p = pickle.load(get_module_res(__name__, PROB_TRANS_P))
 
-    emit_p = pickle.load(get_module_res("finalseg", PROB_EMIT_P))
+    emit_p = pickle.load(get_module_res(__name__, PROB_EMIT_P))
 
     return start_p, trans_p, emit_p
 
 
-if sys.platform.startswith("java"):
-    start_P, trans_P, emit_P = load_model()
-
-else:
-    from .prob_start import P as start_P
-
-    from .prob_trans import P as trans_P
-
-    from .prob_emit import P as emit_P
+start_P, trans_P, emit_P = load_model()
 
 """
 

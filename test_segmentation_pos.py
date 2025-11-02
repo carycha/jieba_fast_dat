@@ -28,7 +28,7 @@ console.setLevel(logging.DEBUG)
 logging.getLogger().addHandler(console)
 logging.getLogger().setLevel(logging.DEBUG)
 
-text_chinese = "我愛台灣臭豆腐跟小籠包, 覺得好吃, 今天中午就想去吃"
+text_chinese = "我愛台灣臭豆腐跟小籠包, 覺得好吃,東北季風發威！4縣市豪大雨特報「雨下整夜」　一路濕到這天"
 text_mixed = "我喜歡 Python 程式設計，版本是 3.9，價格是 $100.50。"
 
 
@@ -36,8 +36,10 @@ def test_word_segmentation():
     logging.info(f"===== Testing word segmentation for: {text_chinese}")
     result_chinese = list(jieba_fast_dat.cut(text_chinese, HMM=False))
     logging.info(f"Segmented words(no HMM): {result_chinese}")
+    logging.info("-----------")
     result_chinese = list(jieba_fast_dat.cut(text_chinese, HMM=True))
     logging.info(f"Segmented words(with HMM): {result_chinese}")
+    logging.info("-----------")
     assert len(result_chinese) > 0
 
     logging.info(f"Testing word segmentation for: {text_mixed}")
@@ -51,8 +53,12 @@ def test_word_segmentation():
 
 def test_pos_tagging():
     logging.info(f"====== Testing POS tagging for: {text_chinese}")
-    result_chinese = list(posseg.cut(text_chinese))
-    logging.info(f"POS tagged words: {result_chinese}")
+    result_chinese = list(posseg.cut(text_chinese, HMM=False))
+    logging.info(f"POS tagged words (no HMM): {result_chinese}")
+    logging.info("-----------")
+    result_chinese = list(posseg.cut(text_chinese, HMM=True))
+    logging.info(f"POS tagged words (with HMM): {result_chinese}")
+    logging.info("-----------")
     assert len(result_chinese) > 0
     non_x_tags_found_chinese = False
     for word, flag in result_chinese:
