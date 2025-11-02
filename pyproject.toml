@@ -13,11 +13,12 @@ norecursedirs = ["test/test.txt"]
 [project]
 name = "jieba_fast_dat"
 version = "0.52"
-description = "Use C and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
+description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
 dynamic = ["readme"]
 authors = [
     { name = "Sun, Junyi" },
     { name = "deepcs233" },
+    { name = "carycha" },
 ]
 license = "MIT"
 requires-python = ">=3.10"
@@ -37,7 +38,7 @@ classifiers = [
 keywords = ["NLP", "tokenizing", "Chinese word segementation"]
 
 [project.urls]
-"Homepage" = "https://github.com/deepcs233/jieba_fast_dat"
+"Homepage" = "https://github.com/carycha/jieba_fast_dat"
 
 [project.optional-dependencies]
 dev = [

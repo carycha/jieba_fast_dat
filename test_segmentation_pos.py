@@ -3,10 +3,11 @@ import jieba_fast_dat.posseg as posseg
 import logging
 import time
 
-system_dict_path = "extra_dict/dict.txt.big"
-# system_dict_path = ""
+# system_dict_path = "extra_dict/dict.txt.big"
+system_dict_path = ""
+user_dict_path = ""
 # user_dict_path = "extra_dict/dict.txt.big"
-user_dict_path = "extra_dict/dict.txt.big.tw_nerd.txt"
+# user_dict_path = "extra_dict/dict.txt.big.tw_nerd.txt"
 # user_dict_path = "test/test_dicts/test_user_dict_add.txt"
 
 if system_dict_path:
@@ -18,7 +19,7 @@ if user_dict_path:
 time_start = time.time()
 jieba_fast_dat.initialize()
 time_end = time.time()
-print('init time spend: {:.6f}s'.format(time_end - time_start))
+print("init time spend: {:.6f}s".format(time_end - time_start))
 
 
 console = logging.StreamHandler()
@@ -30,14 +31,14 @@ logging.getLogger().setLevel(logging.DEBUG)
 text_chinese = "我愛台灣臭豆腐跟小籠包, 覺得好吃, 今天中午就想去吃"
 text_mixed = "我喜歡 Python 程式設計，版本是 3.9，價格是 $100.50。"
 
+
 def test_word_segmentation():
     logging.info(f"===== Testing word segmentation for: {text_chinese}")
-    result_chinese = list(jieba_fast_dat.cut(text_chinese,HMM=False))
+    result_chinese = list(jieba_fast_dat.cut(text_chinese, HMM=False))
     logging.info(f"Segmented words(no HMM): {result_chinese}")
-    result_chinese = list(jieba_fast_dat.cut(text_chinese,HMM=True))
+    result_chinese = list(jieba_fast_dat.cut(text_chinese, HMM=True))
     logging.info(f"Segmented words(with HMM): {result_chinese}")
     assert len(result_chinese) > 0
-
 
     logging.info(f"Testing word segmentation for: {text_mixed}")
     result_mixed = list(jieba_fast_dat.cut(text_mixed))
@@ -46,6 +47,7 @@ def test_word_segmentation():
     assert "Python" in result_mixed
     assert "3.9" in result_mixed
     assert "100.50" in result_mixed
+
 
 def test_pos_tagging():
     logging.info(f"====== Testing POS tagging for: {text_chinese}")
@@ -56,12 +58,12 @@ def test_pos_tagging():
     for word, flag in result_chinese:
         assert word is not None
         assert len(flag) > 0  # Ensure flag is not empty
-        if flag != 'x':
+        if flag != "x":
             non_x_tags_found_chinese = True
     assert non_x_tags_found_chinese
 
     logging.info(f"Testing POS tagging for: {text_mixed}")
-    result_mixed = list(posseg.cut(text_mixed,HMM=True))
+    result_mixed = list(posseg.cut(text_mixed, HMM=True))
     logging.info(f"POS tagged words: {result_mixed}")
     assert len(result_mixed) > 0
     # Check for specific English word and number tags
@@ -76,7 +78,7 @@ def test_pos_tagging():
             version_found = True
         if word == "100.50" and flag == "m":
             price_found = True
-        if flag != 'x':
+        if flag != "x":
             non_x_tags_found_mixed = True
     assert python_found
     assert version_found

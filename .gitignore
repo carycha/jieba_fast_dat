@@ -111,3 +111,4 @@ openspec/
 script
 tmp/
 .ruff_cache
+AGENTS.md
