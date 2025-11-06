@@ -1,8 +1,5 @@
 from __future__ import absolute_import, unicode_literals
 
-# __version__ = "0.39"
-# __license__ = "MIT"
-
 import re
 import os
 import sys
@@ -13,15 +10,30 @@ import tempfile
 import threading
 from hashlib import md5
 from . import finalseg
-from .utils import get_module_res
+from .utils import (
+    get_module_res,
+    split_by_char_type,
+    CHAR_TYPE_ZH,
+    CHAR_TYPE_NUM,
+    CHAR_TYPE_ALPHA,
+)
 
 import _jieba_fast_dat_functions_py3 as _jieba_fast_dat_functions
 from _jieba_fast_dat_functions_py3 import DatTrie
 
+load_hmm_model = _jieba_fast_dat_functions.load_hmm_model
+_posseg_viterbi_cpp = _jieba_fast_dat_functions._posseg_viterbi_cpp
+
 _replace_file = os.rename
 
+
 def _get_abs_path(path):
-    return os.path.normpath(path) if os.path.isabs(path) else os.path.normpath(os.path.join(os.getcwd(), path))
+    return (
+        os.path.normpath(path)
+        if os.path.isabs(path)
+        else os.path.normpath(os.path.join(os.getcwd(), path))
+    )
+
 
 DEFAULT_DICT = None
 DEFAULT_DICT_NAME = "dict.txt"
@@ -39,22 +51,18 @@ re_userdict = re.compile(r"^(.+?)( [0-9]+)?( [a-z]+)?$", re.U)
 
 re_eng = re.compile(r"[a-zA-Z0-9]", re.U)
 
-# \u4E00-\u9FD5a-zA-Z0-9+#&\._ : All non-space characters. Will be handled with re_han
-# \r\n|\s : whitespace characters. Will not be handled.
-re_han_default = re.compile(r"([\u4E00-\u9FD5a-zA-Z0-9+#&\._%]+)", re.U)
-re_skip_default = re.compile(r"(\r\n|\s)", re.U)
-re_han_cut_all = re.compile(r"([\u4E00-\u9FD5]+)", re.U)
-re_skip_cut_all = re.compile(r"[^a-zA-Z0-9+#\n]", re.U)
 
 text_type = str
+
 
 def strdecode(sentence):
     if not isinstance(sentence, text_type):
         try:
-            sentence = sentence.decode('utf-8')
+            sentence = sentence.decode("utf-8")
         except UnicodeDecodeError:
-            sentence = sentence.decode('gbk', 'ignore')
+            sentence = sentence.decode("gbk", "ignore")
     return sentence
+
 
 def setLogLevel(log_level):
     global logger
@@ -146,9 +154,14 @@ class Tokenizer(object):
             if (
                 os.path.isfile(cache_file)
                 and os.path.isfile(dat_cache_file)
-                and (abs_path == DEFAULT_DICT
-                     or (os.path.getmtime(cache_file) > os.path.getmtime(abs_path) and
-                         os.path.getmtime(dat_cache_file) > os.path.getmtime(abs_path)))
+                and (
+                    abs_path == DEFAULT_DICT
+                    or (
+                        os.path.getmtime(cache_file) > os.path.getmtime(abs_path)
+                        and os.path.getmtime(dat_cache_file)
+                        > os.path.getmtime(abs_path)
+                    )
+                )
             ):
                 default_logger.debug("Loading model from cache %s" % cache_file)
                 try:
@@ -194,7 +207,9 @@ class Tokenizer(object):
 
     def calc(self, sentence, DAG, route):
         self.check_initialized()
-        _jieba_fast_dat_functions._calc(self.dat, sentence, DAG, route, float(self.total))
+        _jieba_fast_dat_functions._calc(
+            self.dat, sentence, DAG, route, float(self.total)
+        )
 
     def get_DAG(self, sentence):
         self.check_initialized()
@@ -206,10 +221,12 @@ class Tokenizer(object):
             # Iterate through all possible words starting at k
             while i < N:
                 frag = sentence[k : i + 1]
-                if self.get_freq(frag): # Check if word exists in either user_freq or DAT
+                if self.get_freq(
+                    frag
+                ):  # Check if word exists in either user_freq or DAT
                     tmplist.append(i)
                 i += 1
-            if not tmplist: # If no word found, treat single character as a word
+            if not tmplist:  # If no word found, treat single character as a word
                 tmplist.append(k)
             DAG[k] = tmplist
         return DAG
@@ -238,7 +255,12 @@ class Tokenizer(object):
         while x < N:
             y = route[x][1] + 1
             l_word = sentence[x:y]
-            if re_eng.match(l_word) and len(l_word) == 1:
+            first_char_code = ord(l_word[0])
+            if (
+                (0x0041 <= first_char_code <= 0x005A)
+                or (0x0061 <= first_char_code <= 0x007A)
+                or (0x0030 <= first_char_code <= 0x0039)
+            ) and len(l_word) == 1:
                 buf += l_word
                 x = y
             else:
@@ -305,34 +327,36 @@ class Tokenizer(object):
         sentence = sentence
 
         if cut_all:
-            re_han = re_han_cut_all
-            re_skip = re_skip_cut_all
-        else:
-            re_han = re_han_default
-            re_skip = re_skip_default
-        if cut_all:
             cut_block = self.__cut_all
         elif HMM:
             cut_block = self.__cut_DAG
         else:
             cut_block = self.__cut_DAG_NO_HMM
-        blocks = re_han.split(sentence)
-        for blk in blocks:
-            if not blk:
+
+        blocks = split_by_char_type(sentence)
+        for blk_str, blk_type in blocks:
+            if not blk_str:
                 continue
-            if re_han.match(blk):
-                for word in cut_block(blk):
+
+            # Determine if the block is a 'han' block (Chinese, alphanumeric) or 'skip' block
+            if blk_type == CHAR_TYPE_NUM and not HMM:
+                yield blk_str
+            elif blk_type == CHAR_TYPE_ALPHA and not HMM:  # <--- ADDED THIS CONDITION
+                yield blk_str  # <--- YIELD DIRECTLY IF ALPHA AND NO HMM
+            elif (
+                blk_type == CHAR_TYPE_ZH
+                or blk_type == CHAR_TYPE_NUM
+                or blk_type == CHAR_TYPE_ALPHA
+            ):
+                for word in cut_block(blk_str):
                     yield word
             else:
-                tmp = re_skip.split(blk)
-                for x in tmp:
-                    if re_skip.match(x):
+                # This block is a 'skip' block (punctuation, whitespace, etc.)
+                if not cut_all:
+                    for x in blk_str:
                         yield x
-                    elif not cut_all:
-                        for xx in x:
-                            yield xx
-                    else:
-                        yield x
+                else:
+                    yield blk_str
 
     def cut_for_search(self, sentence, HMM=True):
         """
@@ -385,7 +409,7 @@ class Tokenizer(object):
                   Can be a file-like object, or the path of the dictionary file,
                   whose encoding must be utf-8.
 
-        Structure of dict file:  
+        Structure of dict file:
         word1 freq1 word_type1
         word2 freq2 word_type2
         ...
@@ -520,8 +544,11 @@ dt = Tokenizer()
 
 # global functions
 
+
 def get_FREQ(k, d=None):
     return dt.get_freq(k) or d
+
+
 add_word = dt.add_word
 calc = dt.calc
 cut = dt.cut
@@ -599,6 +626,7 @@ def enable_parallel(processnum=None):
     from multiprocessing import cpu_count
 
     from multiprocessing import Pool
+
     dt.check_initialized()
     if processnum is None:
         processnum = cpu_count()

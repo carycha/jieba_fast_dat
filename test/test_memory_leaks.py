@@ -1,10 +1,6 @@
-import pytest
-import os
 import gc
-import sys
 from collections import Counter
 import _jieba_fast_dat_functions_py3 as c_funcs
-import jieba_fast_dat
 
 
 # Helper to get object counts

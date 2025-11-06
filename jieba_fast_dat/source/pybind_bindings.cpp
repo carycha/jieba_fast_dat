@@ -7,6 +7,39 @@
 #include <array> // For std::array
 #include <string> // For std::string
 #include "cedar.h"
+#include <unordered_map>
+#include <vector>
+
+// HMM model data structures
+namespace HMM {
+    // Map from state char ('B', 'M', 'E', 'S') to int (0-3)
+    const std::unordered_map<char, int> state_map = {
+        {'B', 0}, {'M', 1}, {'E', 2}, {'S', 3}
+    };
+    // Reverse map from int to state char
+    const std::vector<char> reverse_state_map = {'B', 'M', 'E', 'S'};
+
+    // Map from POS tag string to int
+    std::unordered_map<std::string, int> pos_tag_map;
+    // Reverse map from int to POS tag string
+    std::vector<std::string> reverse_pos_tag_map;
+
+    // Combined ID for (state, pos_tag)
+    // id = pos_tag_id * 4 + state_id
+    int get_state_tag_id(const std::string& pos_tag, char state) {
+        if (pos_tag_map.find(pos_tag) == pos_tag_map.end() || state_map.find(state) == state_map.end()) {
+            return -1; // Not found
+        }
+        return pos_tag_map[pos_tag] * 4 + state_map.at(state);
+    }
+
+    // HMM parameters
+    std::unordered_map<int, double> start_P;
+    std::unordered_map<int, std::unordered_map<int, double>> trans_P;
+    std::unordered_map<int, std::unordered_map<char32_t, double>> emit_P;
+    std::unordered_map<char32_t, std::vector<int>> char_state_tab_P;
+}
+
 
 namespace py = pybind11;
 
@@ -85,7 +118,7 @@ int _calc_pybind(DatTrie& trie, py::sequence sentence, py::dict DAG, py::dict& r
         max_x_val = 0;
 
         py::object idx_key = py::cast(idx);
-        
+
         if (!DAG.contains(idx_key)) {
             throw py::key_error("DAG does not contain key " + std::to_string(idx));
         }
@@ -411,6 +444,243 @@ int _get_trie_pybind(DatTrie& trie, const std::string& filename, size_t offset =
     return trie.open(filename, offset);
 }
 
+py::tuple _posseg_viterbi_cpp(py::sequence obs_py) {
+    std::u32string obs;
+    for (auto item : obs_py) {
+        obs += item.cast<std::u32string>();
+    }
+
+    size_t obs_len = obs.length();
+    if (obs_len == 0) {
+        return py::make_tuple(0.0, py::list());
+    }
+
+    std::vector<std::unordered_map<int, double>> V(obs_len);
+    std::vector<std::unordered_map<int, int>> path(obs_len);
+
+    // Initialization
+    char32_t first_char = obs[0];
+    const std::vector<int>* states_to_check;
+    std::vector<int> all_states;
+    if (HMM::char_state_tab_P.find(first_char) != HMM::char_state_tab_P.end()) {
+        states_to_check = &HMM::char_state_tab_P.at(first_char);
+    } else {
+        for(auto const& [key, val] : HMM::start_P) {
+            all_states.push_back(key);
+        }
+        states_to_check = &all_states;
+    }
+
+    for (int y : *states_to_check) {
+        double em_p = (HMM::emit_P.count(y) && HMM::emit_P.at(y).count(first_char)) ? HMM::emit_P.at(y).at(first_char) : MIN_FLOAT_VAL;
+        double start_p = HMM::start_P.count(y) ? HMM::start_P.at(y) : MIN_FLOAT_VAL;
+        V[0][y] = start_p + em_p;
+        path[0][y] = -1;
+    }
+
+    // Recursion
+    for (size_t t = 1; t < obs_len; ++t) {
+        char32_t current_char = obs[t];
+        const std::vector<int>* next_states_to_check;
+        std::vector<int> all_next_states;
+        if (HMM::char_state_tab_P.find(current_char) != HMM::char_state_tab_P.end()) {
+            next_states_to_check = &HMM::char_state_tab_P.at(current_char);
+        } else {
+            if (all_states.empty()) {
+                 for(auto const& [key, val] : HMM::start_P) {
+                    all_states.push_back(key);
+                }
+            }
+            next_states_to_check = &all_states;
+        }
+
+        for (int y : *next_states_to_check) {
+            double em_p = (HMM::emit_P.count(y) && HMM::emit_P.at(y).count(current_char)) ? HMM::emit_P.at(y).at(current_char) : MIN_FLOAT_VAL;
+            double max_prob = MIN_FLOAT_VAL;
+            int best_prev_state = -1;
+
+            for (auto const& [y0, prob0] : V[t-1]) {
+                 char current_state_char = HMM::reverse_state_map[y % 4];
+                 char prev_state_char = HMM::reverse_state_map[y0 % 4];
+
+                 bool valid_transition = false;
+                 if ((current_state_char == 'B' || current_state_char == 'S') && (prev_state_char == 'E' || prev_state_char == 'S')) valid_transition = true;
+                 if ((current_state_char == 'M' || current_state_char == 'E') && (prev_state_char == 'M' || prev_state_char == 'B')) valid_transition = true;
+
+                 if (valid_transition) {
+                    double trans_p = (HMM::trans_P.count(y0) && HMM::trans_P.at(y0).count(y)) ? HMM::trans_P.at(y0).at(y) : MIN_FLOAT_VAL;
+                    double current_prob = prob0 + trans_p;
+                    if (current_prob > max_prob) {
+                        max_prob = current_prob;
+                        best_prev_state = y0;
+                    }
+                 }
+            }
+            V[t][y] = max_prob + em_p;
+            path[t][y] = best_prev_state;
+        }
+    }
+
+    // Termination
+    double final_max_prob = MIN_FLOAT_VAL;
+    int last_state = -1;
+
+    for (auto const& [pos_tag, tag_id] : HMM::pos_tag_map) {
+        // Check 'S' state
+        int s_state_id = HMM::get_state_tag_id(pos_tag, 'S');
+        if (s_state_id != -1) {
+            if (V[obs_len - 1].count(s_state_id)) {
+                double prob = V[obs_len - 1].at(s_state_id);
+                if (prob > final_max_prob) {
+                    final_max_prob = prob;
+                    last_state = s_state_id;
+                }
+            }
+        }
+        // Check 'E' state
+        int e_state_id = HMM::get_state_tag_id(pos_tag, 'E');
+        if (e_state_id != -1) {
+            if (V[obs_len - 1].count(e_state_id)) {
+                double prob = V[obs_len - 1].at(e_state_id);
+                if (prob > final_max_prob) {
+                    final_max_prob = prob;
+                    last_state = e_state_id;
+                }
+            }
+        }
+    }
+
+    if (last_state == -1) {
+        // Fallback: if no E or S state, find any max
+        for (auto const& [y, prob] : V[obs_len - 1]) {
+            if (prob > final_max_prob) {
+                final_max_prob = prob;
+                last_state = y;
+            }
+        }
+    }
+
+    if (last_state == -1) {
+        // All states have MIN_FLOAT probability.
+        // Pick a default state.
+        if (!states_to_check->empty()) {
+            last_state = (*states_to_check)[0];
+        } else {
+            // This should be impossible.
+            return py::make_tuple(0.0, py::list());
+        }
+    }
+
+    // Path backtracking
+    py::list result_path;
+    for (int t = obs_len - 1; t >= 0; --t) {
+        int pos_tag_id = last_state / 4;
+        std::string pos_tag = HMM::reverse_pos_tag_map[pos_tag_id];
+        char state_char = HMM::reverse_state_map[last_state % 4];
+        py::tuple state_and_tag = py::make_tuple(std::string(1, state_char), pos_tag);
+        result_path.insert(0, state_and_tag);
+
+        if (path[t].find(last_state) == path[t].end()) break; // Should not happen
+        last_state = path[t][last_state];
+    }
+
+    return py::make_tuple(final_max_prob, result_path);
+}
+
+void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dict char_state_tab_p) {
+    // Clear previous data
+    HMM::pos_tag_map.clear();
+    HMM::reverse_pos_tag_map.clear();
+    HMM::start_P.clear();
+    HMM::trans_P.clear();
+    HMM::emit_P.clear();
+    HMM::char_state_tab_P.clear();
+
+    // Build pos_tag maps from start_p keys
+    int tag_id_counter = 0;
+    for (auto item : start_p) {
+        py::tuple state_tag = item.first.cast<py::tuple>();
+        std::string tag = state_tag[1].cast<std::string>();
+        if (HMM::pos_tag_map.find(tag) == HMM::pos_tag_map.end()) {
+            HMM::pos_tag_map[tag] = tag_id_counter;
+            HMM::reverse_pos_tag_map.push_back(tag);
+            tag_id_counter++;
+        }
+    }
+
+    // Populate start_P
+    for (auto item : start_p) {
+        py::tuple state_tag = item.first.cast<py::tuple>();
+        char state = state_tag[0].cast<std::string>()[0];
+        std::string tag = state_tag[1].cast<std::string>();
+        double prob = item.second.cast<double>();
+        int id = HMM::get_state_tag_id(tag, state);
+        if (id != -1) {
+            HMM::start_P[id] = prob;
+        }
+    }
+
+    // Populate trans_P
+    for (auto from_item : trans_p) {
+        py::tuple from_state_tag = from_item.first.cast<py::tuple>();
+        char from_state = from_state_tag[0].cast<std::string>()[0];
+        std::string from_tag = from_state_tag[1].cast<std::string>();
+        int from_id = HMM::get_state_tag_id(from_tag, from_state);
+        if (from_id == -1) continue;
+
+        py::dict to_dict = from_item.second.cast<py::dict>();
+        for (auto to_item : to_dict) {
+            py::tuple to_state_tag = to_item.first.cast<py::tuple>();
+            char to_state = to_state_tag[0].cast<std::string>()[0];
+            std::string to_tag = to_state_tag[1].cast<std::string>();
+            double prob = to_item.second.cast<double>();
+            int to_id = HMM::get_state_tag_id(to_tag, to_state);
+            if (to_id != -1) {
+                HMM::trans_P[from_id][to_id] = prob;
+            }
+        }
+    }
+
+    // Populate emit_P
+    for (auto item : emit_p) {
+        py::tuple state_tag = item.first.cast<py::tuple>();
+        char state = state_tag[0].cast<std::string>()[0];
+        std::string tag = state_tag[1].cast<std::string>();
+        int id = HMM::get_state_tag_id(tag, state);
+        if (id == -1) continue;
+
+        py::dict char_prob_dict = item.second.cast<py::dict>();
+        for (auto char_item : char_prob_dict) {
+            std::u32string ch_str = char_item.first.cast<std::u32string>();
+            if (!ch_str.empty()) {
+                 char32_t ch = ch_str[0];
+                 double prob = char_item.second.cast<double>();
+                 HMM::emit_P[id][ch] = prob;
+            }
+        }
+    }
+
+    // Populate char_state_tab_P
+    for (auto item : char_state_tab_p) {
+        std::u32string ch_str = item.first.cast<std::u32string>();
+        if (!ch_str.empty()) {
+            char32_t ch = ch_str[0];
+            py::tuple state_tag_tuple = item.second.cast<py::tuple>();
+            std::vector<int> state_ids;
+            for(auto state_tag_item : state_tag_tuple) {
+                py::tuple state_tag = state_tag_item.cast<py::tuple>();
+                char state = state_tag[0].cast<std::string>()[0];
+                std::string tag = state_tag[1].cast<std::string>();
+                int id = HMM::get_state_tag_id(tag, state);
+                if (id != -1) {
+                    state_ids.push_back(id);
+                }
+            }
+            HMM::char_state_tab_P[ch] = state_ids;
+        }
+    }
+}
+
 PYBIND11_MODULE(_jieba_fast_dat_functions_py3, m) {
     m.doc() = "pybind11 plugin for jieba_fast_dat C functions";
 
@@ -426,4 +696,9 @@ PYBIND11_MODULE(_jieba_fast_dat_functions_py3, m) {
 
     m.def("_calc", &_calc_pybind,
           py::arg("trie"), py::arg("sentence"), py::arg("DAG"), py::arg("route"), py::arg("total_obj"));
+
+    m.def("load_hmm_model", &load_hmm_model,
+          py::arg("start_p"), py::arg("trans_p"), py::arg("emit_p"), py::arg("char_state_tab_p"));
+
+    m.def("_posseg_viterbi_cpp", &_posseg_viterbi_cpp, py::arg("obs"));
 }

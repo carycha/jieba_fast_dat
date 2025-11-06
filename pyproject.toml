@@ -12,7 +12,7 @@ norecursedirs = ["test/test.txt"]
 
 [project]
 name = "jieba_fast_dat"
-version = "0.52"
+version = "0.54"
 description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
 dynamic = ["readme"]
 authors = [

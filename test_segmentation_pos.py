@@ -29,7 +29,7 @@ logging.getLogger().addHandler(console)
 logging.getLogger().setLevel(logging.DEBUG)
 
 text_chinese = "我愛台灣臭豆腐跟小籠包, 覺得好吃,東北季風發威！4縣市豪大雨特報「雨下整夜」　一路濕到這天"
-text_mixed = "我喜歡 Python 程式設計，版本是 3.9，價格是 $100.50。"
+text_mixed = "我喜歡 Python11 程式設計，版本是 3.9，價格是 $100.50。%^&*()_+-=~`{}[]|\\:;\"'<>,.?"
 
 
 def test_word_segmentation():
@@ -46,7 +46,7 @@ def test_word_segmentation():
     result_mixed = list(jieba_fast_dat.cut(text_mixed))
     logging.info(f"Segmented words: {result_mixed}")
     assert len(result_mixed) > 0
-    assert "Python" in result_mixed
+    assert "Python11" in result_mixed
     assert "3.9" in result_mixed
     assert "100.50" in result_mixed
 
@@ -78,7 +78,7 @@ def test_pos_tagging():
     price_found = False
     non_x_tags_found_mixed = False
     for word, flag in result_mixed:
-        if word == "Python" and flag == "eng":
+        if word == "Python11" and flag == "eng":
             python_found = True
         if word == "3.9" and flag == "m":
             version_found = True

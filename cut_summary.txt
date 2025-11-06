@@ -1,0 +1,24 @@
+Thu Nov  6 04:50:14 2025    cut.prof
+
+         1010920 function calls (860918 primitive calls) in 0.400 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    84053    0.076    0.000    0.103    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/utils.py:39(split_by_char_type)
+    30000    0.015    0.000    0.058    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/__init__.py:208(calc)
+    24052    0.008    0.000    0.041    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/finalseg/__init__.py:122(cut)
+    30000    0.040    0.000    0.040    0.000 {built-in method _jieba_fast_dat_functions_py3._calc}
+   148488    0.023    0.000    0.023    0.000 {method 'get' of 'dict' objects}
+   140963    0.015    0.000    0.015    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/utils.py:33(_get_char_type)
+   140963    0.012    0.000    0.012    0.000 {built-in method builtins.ord}
+    77580    0.011    0.000    0.011    0.000 {method 'append' of 'list' objects}
+    94643    0.009    0.000    0.009    0.000 {built-in method builtins.len}
+    90000    0.008    0.000    0.008    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/__init__.py:204(check_initialized)
+      112    0.000    0.000    0.001    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/finalseg/__init__.py:87(__cut)
+       56    0.000    0.000    0.000    0.000 {built-in method _jieba_fast_dat_functions_py3._viterbi}
+  40534/2    0.024    0.000    0.000    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/__init__.py:276(__cut_DAG)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+  68940/4    0.125    0.000    0.000    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/__init__.py:90(get_freq)
+  10530/1    0.009    0.000    0.000    0.000 /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/__init__.py:214(get_DAG)
+  30005/0    0.026    0.000    0.000          /media/ssd100/nfs_data/cary_workspace/github/jieba_fast_dat/jieba_fast_dat/__init__.py:317(cut)

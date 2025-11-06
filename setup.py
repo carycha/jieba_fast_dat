@@ -12,7 +12,7 @@ jieba_fast_dat_functions_py3 = Extension(
     ],  # Point to our new pybind11 source
     include_dirs=[pybind11.get_include()],  # Include pybind11 headers
     language="c++",  # Specify C++ language
-    extra_compile_args=["-std=c++11"]
+    extra_compile_args=["-std=c++17"]
     + (
         ["-fsanitize=address", "-fno-omit-frame-pointer", "-g"]
         if os.environ.get("ENABLE_ASAN") == "1"

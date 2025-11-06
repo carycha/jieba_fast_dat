@@ -1,6 +1,5 @@
 import os
 import tempfile
-import pytest
 from jieba_fast_dat import DatTrie
 
 

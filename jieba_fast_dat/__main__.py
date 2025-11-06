@@ -3,7 +3,6 @@ import sys
 import jieba_fast_dat
 from jieba_fast_dat import text_type
 from argparse import ArgumentParser
-# from ._compat import *
 
 parser = ArgumentParser(
     usage="%s -m jieba [options] filename" % sys.executable,

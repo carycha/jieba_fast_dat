@@ -1,8 +1,12 @@
-import re
-import sys
 import pickle
 
-from jieba_fast_dat.utils import get_module_res
+from jieba_fast_dat.utils import (
+    get_module_res,
+    split_by_char_type,
+    CHAR_TYPE_ZH,
+    CHAR_TYPE_NUM,
+    CHAR_TYPE_ALPHA,
+)
 import _jieba_fast_dat_functions_py3 as _jieba_fast_dat_functions
 
 MIN_FLOAT = -3.14e100
@@ -109,11 +113,6 @@ def __cut(sentence):
         yield sentence[nexti:]
 
 
-re_han = re.compile(r"([\u4E00-\u9FD5]+)")
-
-re_skip = re.compile(r"([a-zA-Z0-9]+(?:\.\d+)?%?)")
-
-
 def add_force_split(word):
     global Force_Split_Words
 
@@ -123,21 +122,22 @@ def add_force_split(word):
 def cut(sentence):
     sentence = sentence
 
-    blocks = re_han.split(sentence)
+    blocks = split_by_char_type(sentence)
 
-    for blk in blocks:
-        if re_han.match(blk):
-            for word in __cut(blk):
+    for blk_str, blk_type in blocks:
+        if not blk_str:
+            continue
+
+        if blk_type == CHAR_TYPE_ZH:
+            for word in __cut(blk_str):
                 if word not in Force_Split_Words:
                     yield word
-
                 else:
                     for c in word:
                         yield c
-
+        elif blk_type == CHAR_TYPE_NUM or blk_type == CHAR_TYPE_ALPHA:
+            yield blk_str
         else:
-            tmp = re_skip.split(blk)
-
-            for x in tmp:
-                if x:
-                    yield x
+            # Other characters (punctuation, symbols) are yielded one by one
+            for c in blk_str:
+                yield c

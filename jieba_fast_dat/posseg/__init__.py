@@ -1,24 +1,31 @@
-import re
-import sys
+# import re
 import jieba_fast_dat
+
 import pickle
-from .viterbi import viterbi
-from jieba_fast_dat.utils import get_module_res
+from jieba_fast_dat.utils import (
+    get_module_res,
+    _get_char_type,
+    split_by_char_type,
+    CHAR_TYPE_ZH,
+    CHAR_TYPE_NUM,
+    CHAR_TYPE_ALPHA,
+    CHAR_TYPE_OTHER,
+)
 
 PROB_START_P = "prob_start.p"
 PROB_TRANS_P = "prob_trans.p"
 PROB_EMIT_P = "prob_emit.p"
 CHAR_STATE_TAB_P = "char_state_tab.p"
 
-re_han_detail = re.compile(r"([\u4E00-\u9FD5]+)")
-re_skip_detail = re.compile(r"([\.0-9]+|[a-zA-Z0-9]+)")
-re_han_internal = re.compile(r"([\u4E00-\u9FD5a-zA-Z0-9+#&\._]+)")
-re_skip_internal = re.compile(r"(\r\n|\s)")
+# re_han_detail = re.compile(r"([\u4E00-\u9FD5]+)")
+# re_skip_detail = re.compile(r"([\.0-9]+|[a-zA-Z0-9]+)")
+# re_han_internal = re.compile(r"([\u4E00-\u9FD5a-zA-Z0-9+#&\._]+)")
+# re_skip_internal = re.compile(r"(\r\n|\s)")
 
-re_eng = re.compile(r"[a-zA-Z0-9]+")
-re_num = re.compile(r"[\.0-9]+")
+# re_eng = re.compile(r"[a-zA-Z0-9]+")
+# re_num = re.compile(r"[\.0-9]+")
 
-re_eng1 = re.compile("^[a-zA-Z0-9]$", re.U)
+# re_eng1 = re.compile("^[a-zA-Z0-9]$", re.U)
 
 
 def load_model():
@@ -31,6 +38,7 @@ def load_model():
 
 
 char_state_tab_P, start_P, trans_P, emit_P = load_model()
+jieba_fast_dat.load_hmm_model(start_P, trans_P, emit_P, char_state_tab_P)
 
 
 class pair(object):
@@ -102,7 +110,7 @@ class POSTokenizer(object):
             self.tokenizer.user_word_tag_tab = {}
 
     def __cut(self, sentence):
-        prob, pos_list = viterbi(sentence, char_state_tab_P, start_P, trans_P, emit_P)
+        prob, pos_list = jieba_fast_dat._posseg_viterbi_cpp(sentence)
         begin, nexti = 0, 0
 
         for i, char in enumerate(sentence):
@@ -118,22 +126,78 @@ class POSTokenizer(object):
         if nexti < len(sentence):
             yield pair(sentence[nexti:], pos_list[nexti][1])
 
+    def _split_non_chinese_block_efficient(self, text_block):
+        n = len(text_block)
+        if n == 0:
+            return  # empty generator
+
+        start = 0
+        while start < n:
+            current_char = text_block[start]
+            current_char_code = ord(current_char)
+            current_char_type_id = _get_char_type(current_char_code)
+
+            block_end = start + 1
+            block_tag = "x"  # Default tag
+
+            # Determine the initial block type and tag
+            if current_char_type_id == CHAR_TYPE_NUM or current_char == ".":
+                block_tag = "m"
+            elif current_char_type_id == CHAR_TYPE_ALPHA:
+                block_tag = "eng"
+            # else block_tag remains 'x'
+
+            # Extend the block as long as the type matches the current block_tag logic
+            # AND for 'eng' blocks, split if char type changes between ALPHA and NUM
+            while block_end < n:
+                next_char = text_block[block_end]
+                next_char_code = ord(next_char)
+                next_char_type_id = _get_char_type(next_char_code)
+
+                should_extend = False
+                if block_tag == "m":
+                    if next_char_type_id == CHAR_TYPE_NUM or next_char == ".":
+                        should_extend = True
+                elif block_tag == "eng":
+                    # 'eng' blocks can contain both alpha and numeric characters,
+                    # but we need to split if type changes from ALPHA to NUM or vice-versa
+                    if (
+                        current_char_type_id == CHAR_TYPE_ALPHA
+                        and next_char_type_id == CHAR_TYPE_NUM
+                    ) or (
+                        current_char_type_id == CHAR_TYPE_NUM
+                        and next_char_type_id == CHAR_TYPE_ALPHA
+                    ):
+                        # Type changed within an 'eng' block, so break and yield current
+                        break
+                    elif (
+                        next_char_type_id == CHAR_TYPE_ALPHA
+                        or next_char_type_id == CHAR_TYPE_NUM
+                    ):
+                        should_extend = True
+                # 'x' blocks are single characters, so no extension
+
+                if should_extend:
+                    block_end += 1
+                else:
+                    break
+
+            yield text_block[start:block_end], block_tag
+            start = block_end
+
     def __cut_detail(self, sentence):
-        blocks = re_han_detail.split(sentence)
-        for blk in blocks:
-            if re_han_detail.match(blk):
-                for word in self.__cut(blk):
+        for blk_str, blk_type in split_by_char_type(sentence):
+            if not blk_str:
+                continue
+            if blk_type == CHAR_TYPE_ZH:
+                for word in self.__cut(blk_str):
                     yield word
             else:
-                tmp = re_skip_detail.split(blk)
-                for x in tmp:
-                    if x:
-                        if re_num.match(x):
-                            yield pair(x, "m")
-                        elif re_eng.match(x):
-                            yield pair(x, "eng")
-                        else:
-                            yield pair(x, "x")
+                # For non-Chinese blocks, use the efficient custom splitter
+                for sub_blk_str, sub_blk_tag in self._split_non_chinese_block_efficient(
+                    blk_str
+                ):
+                    yield pair(sub_blk_str, sub_blk_tag)
 
     def __cut_DAG_NO_HMM(self, sentence):
         DAG = self.tokenizer.get_DAG(sentence)
@@ -145,12 +209,15 @@ class POSTokenizer(object):
         while x < N:
             y = route[x][1] + 1
             l_word = sentence[x:y]
-            if re_eng1.match(l_word):
+            first_char_type = _get_char_type(ord(l_word[0]))
+            if (
+                (first_char_type == CHAR_TYPE_ALPHA or first_char_type == CHAR_TYPE_NUM)
+            ) and len(l_word) == 1:
                 buf += l_word
                 x = y
             else:
                 if buf:
-                    if re_num.fullmatch(buf):
+                    if buf.isdigit():
                         yield pair(buf, "m")
                     else:
                         yield pair(buf, "eng")
@@ -200,29 +267,28 @@ class POSTokenizer(object):
     def __cut_internal(self, sentence, HMM=True):
         self.makesure_userdict_loaded()
         sentence = sentence
-        blocks = re_han_internal.split(sentence)
+        # Use split_by_char_type to get blocks with their types
+        blocks_with_types = split_by_char_type(sentence)
+
         if HMM:
             cut_blk = self.__cut_DAG
         else:
             cut_blk = self.__cut_DAG_NO_HMM
 
-        for blk in blocks:
-            if re_han_internal.match(blk):
-                for word in cut_blk(blk):
+        for blk_str, blk_type in blocks_with_types:
+            if not blk_str:
+                continue
+
+            if blk_type == CHAR_TYPE_ZH:  # Chinese block
+                for word in cut_blk(blk_str):
                     yield word
-            else:
-                tmp = re_skip_internal.split(blk)
-                for x in tmp:
-                    if re_skip_internal.match(x):
-                        yield pair(x, "x")
-                    else:
-                        for xx in x:
-                            if re_num.match(xx):
-                                yield pair(xx, "m")
-                            elif re_eng.match(xx):
-                                yield pair(xx, "eng")
-                            else:
-                                yield pair(xx, "x")
+            elif blk_type == CHAR_TYPE_NUM:  # Numeric block
+                yield pair(blk_str, "m")
+            elif blk_type == CHAR_TYPE_ALPHA:  # Alpha block
+                yield pair(blk_str, "eng")
+            else:  # Other characters (punctuation, symbols)
+                for c in blk_str:
+                    yield pair(c, "x")
 
     def _lcut_internal(self, sentence):
         return list(self.__cut_internal(sentence))
