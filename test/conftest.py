@@ -1,6 +1,9 @@
 import os
 import pytest
 import jieba_fast_dat
+import tracemalloc
+import linecache
+
 
 # Define paths to our test resources
 TEST_DICTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_dicts")
@@ -102,6 +105,57 @@ def pos_tokenizer(dict_base_path, user_dict_base_path):
     # 3. Create the POSTokenizer from the fully configured tokenizer instance.
     pos_tokenizer = jieba_fast_dat.posseg.POSTokenizer(tokenizer=custom_tokenizer)
     return pos_tokenizer
+
+
+@pytest.fixture()
+def tracemalloc_leaks(request):
+    """
+    Pytest fixture to check for memory leaks using tracemalloc.
+    Apply this fixture to specific tests that require detailed memory analysis.
+    Fails if memory usage grows by more than a threshold after the test.
+    """
+    tracemalloc.start(25)  # Start tracing with a stack depth of 25
+
+    # Take a snapshot before the test runs
+    snapshot_before = tracemalloc.take_snapshot()
+
+    yield  # Run the test
+
+    # Take a snapshot after the test
+    snapshot_after = tracemalloc.take_snapshot()
+
+    tracemalloc.stop()  # Stop tracing
+
+    # Compare the two snapshots
+    top_stats = snapshot_after.compare_to(snapshot_before, "lineno")
+
+    # Calculate total leaked memory
+    total_leaked = sum(stat.size_diff for stat in top_stats)
+
+    # Set a threshold for failure (e.g., 10 KiB)
+    threshold_bytes = 10 * 1024
+
+    if total_leaked > threshold_bytes:
+        leak_details = []
+        leak_details.append(
+            f"Memory leak detected! Total growth: {total_leaked / 1024:.2f} KiB"
+        )
+        leak_details.append("Top 10 lines with memory growth:")
+
+        for stat in top_stats[:10]:
+            frame = stat.traceback[0]
+            filename = frame.filename
+            lineno = frame.lineno
+            line = linecache.getline(filename, lineno).strip()
+
+            growth = f"{stat.size_diff / 1024:+.2f} KiB"
+            leak_details.append(
+                f"  - {filename}:{lineno}: {growth} ({stat.count} new blocks)"
+            )
+            if line:
+                leak_details.append(f"    Line: `{line}`")
+
+        pytest.fail("\n".join(leak_details))
 
 
 @pytest.fixture(autouse=True)

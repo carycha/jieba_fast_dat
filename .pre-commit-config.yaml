@@ -3,6 +3,11 @@ repos:
     rev: 23.3.0 # Use a specific version of black
     hooks:
       - id: black
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.9 # Use the latest version
+    hooks:
+      - id: ruff
+      - id: ruff-format
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0 # Use a specific version of pre-commit-hooks
     hooks:
