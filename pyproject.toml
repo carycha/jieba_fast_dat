@@ -53,6 +53,7 @@ dev = [
     "pybind11",
     "scikit-learn",
     "ruff",
+    "twine",
 ]
 
 [tool.setuptools.dynamic]

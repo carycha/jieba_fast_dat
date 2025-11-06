@@ -1,2 +1,1 @@
-graft README.md
-graft Changelog
+include README.md

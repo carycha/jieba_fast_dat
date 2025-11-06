@@ -381,7 +381,7 @@ py::tuple _viterbi_pybind(py::sequence obs, py::str _states_py, py::dict start_p
                 em_p_val = get_double_from_py_object(item_obj);
 
             double max_prob_val = MIN_FLOAT_VAL;
-            char best_state_char = ' ';
+            char best_state_char = '\0';
 
             for(int p = 0; p < 2; ++p)
             {
@@ -401,9 +401,9 @@ py::tuple _viterbi_pybind(py::sequence obs, py::str _states_py, py::dict start_p
                     best_state_char = y0_char;
                 }
             }
-            // Original C code had a fallback if best_state was still ' '
+            // Original C code had a fallback if best_state was still '\0'
             // This part seems to ensure best_state is set even if all probs are MIN_FLOAT
-            if(best_state_char == ' ')
+            if(best_state_char == '\0')
             {
                 for(int p = 0; p < 2; p++)
                 {

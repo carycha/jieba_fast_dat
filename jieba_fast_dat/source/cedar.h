@@ -1,13 +1,13 @@
 // cedar -- C++ implementation of Efficiently-updatable Double ARray trie
 //  $Id: cedar.h 1814 2014-05-07 03:42:04Z ynaga $
-//  
-//  Three trie implementations: a (normal) trie, a reduced trie [3] (compact size and faster look-up for short keys), 
+//
+//  Three trie implementations: a (normal) trie, a reduced trie [3] (compact size and faster look-up for short keys),
 //  a minimal-prefix trie (compact size for long keys).
 //  A reduced trie is enabled if you put #define USE_REDUCED_TRIE 1 before #include <cedar.h>,
 //  while a minimal-prefix trie is enabled if you #include <cedarpp.h> instead of cedar.h.
-//  
+//
 // Copyright (c) 2009-2014 Naoki Yoshinaga <ynaga@tkl.iis.u-tokyo.ac.jp>
-// 
+//
 #ifndef CEDAR_H
 #define CEDAR_H
 
@@ -74,14 +74,13 @@ namespace cedar {
       int   ehead;  // first empty item
       block () : prev (0), next (0), num (256), reject (257), trial (0), ehead (0) {}
     };
-    
-	da () : tracking_node (), _array (0), _ninfo (0), _block (0), _bheadF (0), _bheadC (0), _bheadO (0), _capacity (0), _size (0), _no_delete (false), _reject () {
-      STATIC_ASSERT(sizeof (value_type) <= sizeof (int),
-                    value_type_is_not_supported___maintain_a_value_array_by_yourself_and_store_its_index
-                    );
-      _initialize ();
-    }
-    ~da () { clear (false); }
+
+	    da () : tracking_node (), _array (0), _ninfo (0), _block (0), _bheadF (0), _bheadC (0), _bheadO (0), _capacity (0), _size (0), _no_delete (false), _reject () {
+	      static_assert(sizeof (value_type) <= sizeof (int),
+	                    "value_type is not supported: maintain a value array by yourself and store its index"
+	                    );
+	      _initialize ();
+	    }    ~da () { clear (false); }
 
     size_t capacity   () const { return static_cast <size_t> (_capacity); }
     size_t size       () const { return static_cast <size_t> (_size); }
@@ -327,9 +326,9 @@ namespace cedar {
     }
     const void* array () const { return _array; }
     void clear (const bool reuse = true) {
-      if (_array && ! _no_delete) std::free (_array); _array = 0;
-      if (_ninfo) std::free (_ninfo); _ninfo = 0;
-      if (_block) std::free (_block); _block = 0;
+      if (_array && ! _no_delete) { std::free (_array); } _array = 0;
+      if (_ninfo) { std::free (_ninfo); } _ninfo = 0;
+      if (_block) { std::free (_block); } _block = 0;
       _bheadF = _bheadC = _bheadO = _capacity = _size = 0; // *
       if (reuse) _initialize ();
       _no_delete = false;
