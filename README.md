@@ -19,15 +19,16 @@
 * **Python 版本限制**：我們擁抱現代開發！僅支持 **Python >= 3.10**。
 
 ## changelog
+- 20251106 add pypi install version 0.54
 - 20251106 [0.54] 核心分詞引擎重構，將 Viterbi 完整遷移至 C++ 實現，執行效能大幅提升，並升級至 C++17 標準。
 - 20251102 增加 memory-leak 測試以避免 python, c++ memory leak
 - 20251102 重翻 c++程式, 移除無效程式, 優化 dat 效能
 
 ## 數字會說話：字典載入速度 **94.83%** 的巨大提升！
 
-我們用一個包含 **$130$ 萬筆資料**的超大型字典進行了對比。結果顯示：不論是第一次init還是在第二次使用快取時，我們的提升幅度是**巨大**！
+我們用一個包含 **130 萬筆資料**的超大型字典進行了對比。結果顯示：不論是第一次init還是在第二次使用快取時，我們的提升幅度是**巨大**！
 
-|| 初次 init 花費時間 | cached 花費時間|mmap 提昇速度%|
+|| 初次 init 花費時間 | cached 花費時間|cache 提昇速度%|
 |---|---|---|---|
 |jieba_fast| 6.00 s| 4.76 s| 20.69% |
 |**jieba_fast_dat**| **1.58 s**| **0.25 s**| **84.48%** |
@@ -38,12 +39,16 @@
 
 
 ## 🚀 安裝
+pypi 安裝最新
+```bash
+pip install jieba_fast_dat
+```
 
-安裝最新
+github 安裝最新
 ```bash
 pip install git+https://github.com/carycha/jieba_fast_dat
 ```
-安裝指定版號
+github 安裝指定版號
 ```bash
 pip install git+https://github.com/carycha/jieba_fast_dat@0.54
 ```

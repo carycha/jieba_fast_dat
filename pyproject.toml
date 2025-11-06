@@ -14,7 +14,7 @@ norecursedirs = ["test/test.txt"]
 name = "jieba_fast_dat"
 version = "0.54"
 description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
-dynamic = ["readme"]
+readme = "README.md"
 authors = [
     { name = "Sun, Junyi" },
     { name = "deepcs233" },
@@ -54,6 +54,7 @@ dev = [
     "scikit-learn",
     "ruff",
     "twine",
+    "auditwheel",
 ]
 
 [tool.setuptools.dynamic]
