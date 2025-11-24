@@ -112,3 +112,7 @@ script
 tmp/
 .ruff_cache
 AGENTS.md
+cut_summary.*
+pos_summary.*
+.gemini/
+.nexus/

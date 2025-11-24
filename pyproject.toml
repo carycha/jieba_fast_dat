@@ -1,18 +1,25 @@
-[tool.black]
-line-length = 88
-target-version = ['py310']
-
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q"
+addopts = "-ra -q --capture=tee-sys"
 testpaths = [
     "test",
 ]
-norecursedirs = ["test/test.txt"]
+markers = [
+    "consistency: marks tests as consistency checks between jieba_fast_dat and original jieba",
+    "memory: marks tests as memory-intensive (deselect with '-m \"not memory\"')",
+]
+timeout = 20 # 全局超時設定為 20 秒
+norecursedirs = [
+]
+python_files = "test_*.py *_test.py"
+filterwarnings = [
+    "ignore:Do not expect file_or_dir in Namespace:UserWarning",
+    "ignore:pkg_resources is deprecated as an API:UserWarning",
+]
 
 [project]
 name = "jieba_fast_dat"
-version = "0.54"
+version = "0.55"
 description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
 readme = "README.md"
 authors = [
@@ -42,8 +49,8 @@ keywords = ["NLP", "tokenizing", "Chinese word segementation"]
 
 [project.optional-dependencies]
 dev = [
-    "black",
     "pytest",
+    "pytest-timeout",
     "pytest-cov",
     "uv",
     "setuptools",
@@ -55,6 +62,10 @@ dev = [
     "ruff",
     "twine",
     "auditwheel",
+    "jieba",
+    "pyright",
+    "types-setuptools",
+    "psutil",
 ]
 
 [tool.setuptools.dynamic]
@@ -72,3 +83,59 @@ find = { include = ["jieba_fast_dat", "jieba_fast_dat.*"] }
 [build-system]
 requires = ["setuptools>=61.0", "wheel", "pybind11"]
 build-backend = "setuptools.build_meta"
+
+# --- Ruff 配置：格式化與 Linting ---
+[tool.ruff]
+line-length = 88
+target-version = "py310" # 確保與 requires-python 保持一致
+
+[tool.ruff.lint]
+# 擴展規則集以提升程式碼品質
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes errors
+    "I",    # isort (匯入排序)
+    "UP",   # pyupgrade (現代化 Python 語法)
+    "B",    # flake8-bugbear (潛在的設計錯誤)
+    "C4",   # flake8-comprehensions (生成式優化)
+    "ANN",  # flake8-annotations (Type Hint 檢查)
+    #"N",    # pep8-naming (命名規範)
+]
+
+# 禁用或忽略可能導致衝突的特定規則
+ignore = [
+    # 如果 Pyright 抱怨命名規範，可以暫時忽略：
+    # "N803",
+    # 如果 ANN 規則太過激進，導致 Pyright 認為類型冗餘，可以暫時忽略：
+    # "ANN201", # 忽略公共函式的回傳類型註釋
+    # 如果您只想忽略所有「缺少返回型別」的規則，可以使用 `ANN2`
+    "ANN2",
+    "N802"  #先跳過小寫+底線變數命名規則
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = true
+# suppress-none-returning = true # 啟用此項如果有很多函式隱式返回 None
+
+# --- Pyright 配置：靜態型別檢查 (關鍵衝突解決) ---
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic" # 建議從 basic 開始，減少初期衝突
+
+# 禁用 ruff 已經處理的 Linting 規則，讓 Pyright 專注型別
+reportUnusedImport = false    # Ruff (I001, F401) 已經處理
+reportUnusedVariable = false  # Ruff (F841) 已經處理
+reportMissingTypeStubs = false # 除非您想嚴格要求所有第三方庫都有 Type Stub
+
+# 設置檢查範圍
+include = ["jieba_fast_dat", "test"]
+exclude = [
+    "**/node_modules",
+]

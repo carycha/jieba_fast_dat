@@ -1,265 +1,223 @@
+import logging
 import os
+from collections.abc import Generator
+
+import jieba as original_jieba
+import jieba.analyse as original_jieba_analyse
+import jieba.posseg as original_jieba_posseg
 import pytest
+
 import jieba_fast_dat
-import tracemalloc
-import linecache
+import jieba_fast_dat.analyse
+import jieba_fast_dat.posseg
 
-
-# Define paths to our test resources
-TEST_DICTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_dicts")
-TEST_TEXTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_texts")
+# --- Path Fixtures ---
 
 
 @pytest.fixture(scope="session")
-def dicts_dir():
-    return TEST_DICTS_DIR
+def test_data_dir() -> str:
+    """Base directory for test data."""
+    return os.path.dirname(os.path.realpath(__file__))
 
 
 @pytest.fixture(scope="session")
-def texts_dir():
-    return TEST_TEXTS_DIR
+def dicts_dir(test_data_dir: str) -> str:
+    """Directory for dictionary files."""
+    return os.path.join(test_data_dir, "test_dicts")
 
 
-@pytest.fixture(scope="session")
-def dict_base_path():
-    return os.path.join(TEST_DICTS_DIR, "test_dict_base.txt")
-
-
-@pytest.fixture(scope="session")
-def user_dict_base_path():
-    return os.path.join(TEST_DICTS_DIR, "test_user_dict_base.txt")
-
-
-@pytest.fixture(scope="session")
-def dict_add_path():
-    return os.path.join(TEST_DICTS_DIR, "test_dict_add.txt")
-
-
-@pytest.fixture(scope="session")
-def main_test_text_path():
-    return os.path.join(TEST_TEXTS_DIR, "main_test_text.txt")
-
-
-@pytest.fixture
-def main_test_text(main_test_text_path):
-    with open(main_test_text_path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-@pytest.fixture(scope="session")
-def idf_base_path():
-    return os.path.join(TEST_DICTS_DIR, "text_idf_base.txt")
-
-
-@pytest.fixture(scope="session")
-def stop_words_path():
-    return os.path.join(TEST_DICTS_DIR, "test_stop_words.txt")
-
-
-@pytest.fixture(scope="module")
-def tfidf_extractor(dict_base_path, idf_base_path):
+@pytest.fixture(scope="session", autouse=True)
+def set_jieba_fast_dat_log_level() -> None:
     """
-    Provides a TFIDF extractor instance initialized with custom dictionaries.
+    Set jieba_fast_dat's internal logger level to WARNING to reduce noise during tests.
     """
-    custom_tokenizer = jieba_fast_dat.Tokenizer(dictionary=dict_base_path)
-
-    # The original test had a weird override to force HMM=False.
-    # We will replicate that here inside the fixture to keep tests clean.
-    original_cut = custom_tokenizer.cut
-
-    def new_cut(sentence, cut_all=False, HMM=True):
-        return original_cut(sentence, cut_all=cut_all, HMM=False)  # Force HMM=False
-
-    custom_tokenizer.cut = new_cut
-
-    extractor = jieba_fast_dat.analyse.TFIDF(idf_path=idf_base_path)
-    extractor.tokenizer = custom_tokenizer
-    return extractor
+    jieba_fast_dat.setLogLevel(logging.WARNING)
 
 
-@pytest.fixture
-def tokenizer_base(dict_base_path, user_dict_base_path):
+@pytest.fixture(scope="session")
+def texts_dir(test_data_dir: str) -> str:
+    """Directory for text files."""
+    return os.path.join(test_data_dir, "test_texts")
+
+
+@pytest.fixture(scope="session")
+def dict_base_path(dicts_dir: str) -> str:
+    """Path to the base dictionary."""
+    return os.path.join(dicts_dir, "test_dict_base.txt")
+
+
+@pytest.fixture(scope="session")
+def user_dict_base_path(dicts_dir: str) -> str:
+    """Path to the base user dictionary."""
+    return os.path.join(dicts_dir, "test_user_dict_base.txt")
+
+
+@pytest.fixture(scope="session")
+def idf_base_path(dicts_dir: str) -> str:
+    """Path to the base IDF file."""
+    return os.path.join(dicts_dir, "text_idf_base.txt")
+
+
+@pytest.fixture(scope="session")
+def stop_words_path(dicts_dir: str) -> str:
+    """Path to the stop words file."""
+    return os.path.join(dicts_dir, "test_stop_words.txt")
+
+
+@pytest.fixture(scope="session")
+def main_test_text_path(texts_dir: str) -> str:
+    """Path to the main test text file."""
+    return os.path.join(texts_dir, "main_test_text.txt")
+
+
+@pytest.fixture(scope="session")
+def dict_add_path(dicts_dir: str) -> str:
+    """Path to a dictionary for adding words."""
+    return os.path.join(dicts_dir, "test_user_dict_base.txt")
+
+
+@pytest.fixture(scope="session")
+def dict_new_main_path(dicts_dir: str) -> str:
+    """Path to an alternative main dictionary for testing set_dictionary behavior."""
+    return os.path.join(dicts_dir, "test_dict_add.txt")
+
+
+# --- Text Data Fixtures ---
+
+
+@pytest.fixture(scope="session")
+def main_test_text(texts_dir: str) -> str:
+    """A standard Chinese text for general testing."""
+    file_path = os.path.join(texts_dir, "main_test_text.txt")
+    with open(file_path, encoding="utf-8") as f:
+        return f.read().strip()
+
+
+@pytest.fixture(scope="session")
+def mixed_text() -> str:
+    """A text with mixed Chinese, English, numbers, and symbols."""
+    return "這是一句混合文本，包含English、數字123和符號#C++。我們來談談生成式AI。"
+
+
+# --- Tokenizer Fixtures (Function-scoped for isolation) ---
+
+
+@pytest.fixture(scope="function")
+def orig_tokenizer(
+    dict_base_path: str, user_dict_base_path: str
+) -> original_jieba.Tokenizer:
     """
-    Provides a clean, initialized tokenizer with custom dictionaries.
+    Provides a fresh original jieba.Tokenizer instance for each test.
+    Initialized with base and user dictionaries.
     """
-    tokenizer = jieba_fast_dat.Tokenizer()
-    tokenizer.set_dictionary(dict_base_path)
-    tokenizer.load_userdict(user_dict_base_path)
+    tokenizer = original_jieba.Tokenizer(dictionary=str(dict_base_path))
+    tokenizer.load_userdict(str(user_dict_base_path))
+    tokenizer.initialize()
     return tokenizer
 
 
-@pytest.fixture
-def pos_tokenizer(dict_base_path, user_dict_base_path):
+@pytest.fixture(scope="function")
+def fast_tokenizer(
+    dict_base_path: str, user_dict_base_path: str
+) -> Generator[jieba_fast_dat.Tokenizer, None, None]:
     """
-    Provides a correctly initialized posseg tokenizer.
-    The key is to create a Tokenizer instance, load dicts into IT,
-    and then pass THAT instance to the POSTokenizer.
+    Provides a fresh jieba_fast_dat.Tokenizer instance for each test.
+    Initialized with base and user dictionaries.
     """
-    # 1. Create a custom tokenizer instance.
-    custom_tokenizer = jieba_fast_dat.Tokenizer()
-
-    # 2. Load dictionaries directly into this instance.
-    custom_tokenizer.set_dictionary(dict_base_path)
-    custom_tokenizer.load_userdict(user_dict_base_path)
-
-    # 3. Create the POSTokenizer from the fully configured tokenizer instance.
-    pos_tokenizer = jieba_fast_dat.posseg.POSTokenizer(tokenizer=custom_tokenizer)
-    return pos_tokenizer
+    tokenizer = jieba_fast_dat.Tokenizer(dictionary=dict_base_path)
+    tokenizer.load_userdict(user_dict_base_path)
+    tokenizer.initialize()
+    yield tokenizer
 
 
-@pytest.fixture()
-def tracemalloc_leaks(request):
+@pytest.fixture(scope="function")
+def small_dict_tokenizer(dict_base_path: str) -> jieba_fast_dat.Tokenizer:
     """
-    Pytest fixture to check for memory leaks using tracemalloc.
-    Apply this fixture to specific tests that require detailed memory analysis.
-    Fails if memory usage grows by more than a threshold after the test.
+    Provides a jieba_fast_dat.Tokenizer instance initialized with a small dictionary.
     """
-    tracemalloc.start(25)  # Start tracing with a stack depth of 25
-
-    # Take a snapshot before the test runs
-    snapshot_before = tracemalloc.take_snapshot()
-
-    yield  # Run the test
-
-    # Take a snapshot after the test
-    snapshot_after = tracemalloc.take_snapshot()
-
-    tracemalloc.stop()  # Stop tracing
-
-    # Compare the two snapshots
-    top_stats = snapshot_after.compare_to(snapshot_before, "lineno")
-
-    # Calculate total leaked memory
-    total_leaked = sum(stat.size_diff for stat in top_stats)
-
-    # Set a threshold for failure (e.g., 10 KiB)
-    threshold_bytes = 10 * 1024
-
-    if total_leaked > threshold_bytes:
-        leak_details = []
-        leak_details.append(
-            f"Memory leak detected! Total growth: {total_leaked / 1024:.2f} KiB"
-        )
-        leak_details.append("Top 10 lines with memory growth:")
-
-        for stat in top_stats[:10]:
-            frame = stat.traceback[0]
-            filename = frame.filename
-            lineno = frame.lineno
-            line = linecache.getline(filename, lineno).strip()
-
-            growth = f"{stat.size_diff / 1024:+.2f} KiB"
-            leak_details.append(
-                f"  - {filename}:{lineno}: {growth} ({stat.count} new blocks)"
-            )
-            if line:
-                leak_details.append(f"    Line: `{line}`")
-
-        pytest.fail("\n".join(leak_details))
+    tokenizer = jieba_fast_dat.Tokenizer(dictionary=dict_base_path)
+    tokenizer.initialize()
+    return tokenizer
 
 
-@pytest.fixture(autouse=True)
-def check_memory_leaks(request):
+@pytest.fixture(scope="function")
+def orig_pos_tokenizer(
+    orig_tokenizer: original_jieba.Tokenizer,
+) -> original_jieba_posseg.POSTokenizer:
     """
-    Pytest fixture to check for Python memory leaks after each test function.
-    This uses the gc module to detect objects that are created during a test
-    and are not garbage collected afterwards.
+    Provides a fresh original jieba.posseg.POSTokenizer instance for each test.
     """
-    import gc
+    original_jieba_posseg.initialize()  # 確保 posseg 模塊使用最新的詞典
+    return original_jieba_posseg.POSTokenizer(tokenizer=orig_tokenizer)
 
-    gc.collect()
-    gc.disable()  # Disable garbage collection during test to track new objects
 
-    initial_objects = {id(obj) for obj in gc.get_objects()}
+@pytest.fixture(scope="function")
+def fast_pos_tokenizer(
+    fast_tokenizer: jieba_fast_dat.Tokenizer,
+) -> jieba_fast_dat.posseg.POSTokenizer:
+    """
+    Provides a fresh jieba_fast_dat.posseg.POSTokenizer instance for each test.
+    """
+    jieba_fast_dat.posseg.initialize()  # 確保 posseg 模塊使用最新的詞典
+    return jieba_fast_dat.posseg.POSTokenizer(tokenizer=fast_tokenizer)
 
-    yield  # Run the test function
 
-    gc.enable()  # Re-enable garbage collection
-    gc.collect()  # Force a collection after the test
+@pytest.fixture(scope="function")
+def pos_tokenizer(
+    fast_pos_tokenizer: jieba_fast_dat.posseg.POSTokenizer,
+) -> jieba_fast_dat.posseg.POSTokenizer:
+    """
+    Alias for fast_pos_tokenizer, used in some performance tests.
+    """
+    return fast_pos_tokenizer
 
-    all_final_objects = gc.get_objects()
-    leaked_object_ids = {id(obj) for obj in all_final_objects} - initial_objects
 
-    leaked_objects = []
-    for obj in all_final_objects:
-        if id(obj) in leaked_object_ids:
-            # Basic filtering for common internal/fixture objects
-            if (
-                obj is check_memory_leaks
-                or obj is request  # The fixture function itself
-                or (  # Pytest request fixture
-                    hasattr(obj, "__module__")
-                    and obj.__module__ is not None
-                    and any(obj.__module__.startswith(p) for p in ("_pytest", "gc"))
-                )
-            ):  # Pytest/GC internals
-                continue
+# --- Analysis Fixtures ---
 
-            # Explicitly ignore jieba_fast_dat.Tokenizer and POSTokenizer instances and their bound methods
-            if (
-                isinstance(obj, jieba_fast_dat.Tokenizer)
-                or isinstance(obj, jieba_fast_dat.posseg.POSTokenizer)
-                or (
-                    hasattr(obj, "__self__")
-                    and (
-                        isinstance(obj.__self__, jieba_fast_dat.Tokenizer)
-                        or isinstance(obj.__self__, jieba_fast_dat.posseg.POSTokenizer)
-                    )
-                )
-            ):
-                continue
 
-            # Additional filtering for common Python types that might linger
-            obj_type_name = type(obj).__name__
-            if obj_type_name in (
-                "function",
-                "wrapper",
-                "dict",
-                "list",
-                "tuple",
-                "set",
-                "str",
-            ):
-                if (
-                    (obj_type_name == "dict" and not obj)
-                    or (obj_type_name == "list" and not obj)
-                    or (obj_type_name == "tuple" and not obj)
-                    or (obj_type_name == "set" and not obj)
-                ):
-                    continue  # Ignore empty Python collections
+@pytest.fixture(scope="function")
+def fast_tfidf_extractor(
+    idf_base_path: str, fast_tokenizer: jieba_fast_dat.Tokenizer
+) -> jieba_fast_dat.analyse.TFIDF:
+    """
+    Provides a TFIDF extractor from jieba_fast_dat, using the fast_tokenizer.
+    """
+    extractor = jieba_fast_dat.analyse.TFIDF(idf_path=idf_base_path)
+    extractor.tokenizer = fast_tokenizer
+    return extractor
 
-            # Consider objects that are part of the test module or related modules
-            # This helps to focus on application-level leaks
-            if (
-                hasattr(obj, "__module__")
-                and obj.__module__ is not None
-                and obj.__module__.startswith("jieba_fast_dat")
-            ) or (
-                hasattr(obj, "__file__")
-                and obj.__file__ is not None
-                and "test/" in obj.__file__
-                and not obj.__file__.endswith("conftest.py")
-            ):
-                leaked_objects.append(obj)
 
-            # If it's a pybind11-related object, include it
-            elif (
-                hasattr(obj, "__module__")
-                and obj.__module__ is not None
-                and "_jieba_fast_dat_functions_py3" in obj.__module__
-            ):
-                leaked_objects.append(obj)
+@pytest.fixture(scope="function")
+def orig_tfidf_extractor(
+    idf_base_path: str, orig_tokenizer: original_jieba.Tokenizer
+) -> original_jieba_analyse.TFIDF:
+    """
+    Provides a TFIDF extractor from original jieba, using the orig_tokenizer.
+    """
+    extractor = original_jieba_analyse.TFIDF(idf_path=str(idf_base_path))
+    extractor.tokenizer = orig_tokenizer
+    return extractor
 
-    if leaked_objects:
-        leak_details = []
-        for obj in leaked_objects:
-            obj_type = type(obj).__name__
-            obj_repr = repr(obj)
-            if len(obj_repr) > 100:
-                obj_repr = obj_repr[:97] + "..."
-            leak_details.append(f"  - Type: {obj_type}, Value: {obj_repr}")
 
-        pytest.fail(
-            f"Memory leak detected! {len(leaked_objects)} objects were not garbage collected:\n"
-            + "\n".join(leak_details)
-        )
+@pytest.fixture(scope="function")
+def fast_textrank_extractor(
+    fast_pos_tokenizer: jieba_fast_dat.posseg.POSTokenizer,
+) -> jieba_fast_dat.analyse.TextRank:
+    """
+    Provides a TextRank extractor from jieba_fast_dat.
+    """
+    extractor = jieba_fast_dat.analyse.TextRank()
+    extractor.tokenizer = fast_pos_tokenizer
+    return extractor
+
+
+@pytest.fixture(scope="function")
+def orig_textrank_extractor(
+    orig_pos_tokenizer: original_jieba_posseg.POSTokenizer,
+) -> original_jieba_analyse.TextRank:
+    """
+    Provides a TextRank extractor from original jieba.
+    """
+    extractor = original_jieba_analyse.TextRank()
+    extractor.tokenizer = orig_pos_tokenizer
+    return extractor

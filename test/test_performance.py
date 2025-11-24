@@ -1,31 +1,40 @@
 import cProfile
-import pstats
-import pytest
 import io
+import pstats
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-# Assuming jieba_fast_dat is installed or available in the path
-import jieba_fast_dat as jieba
-import jieba_fast_dat.posseg as posseg
+import pytest
+from pytest import CaptureFixture
+
+import jieba_fast_dat
+import jieba_fast_dat.posseg
 
 # Define paths
 TEST_TEXT_PATH = Path(__file__).parent.parent / "extra_dict" / "profile_test"
-CUT_PROF_PATH = Path("cut.prof")
-POS_PROF_PATH = Path("pos.prof")
+CUT_PROF_PATH = Path("cut_summary.prof")
+POS_PROF_PATH = Path("pos_summary.prof")
 CUT_SUMMARY_PATH = Path("cut_summary.txt")
 POS_SUMMARY_PATH = Path("pos_summary.txt")
 
 
 @pytest.fixture(scope="module")
-def test_text_content():
+def test_text_content() -> str:
     """Fixture to load the test text content once per module."""
     if not TEST_TEXT_PATH.exists():
         pytest.fail(f"Test text file not found: {TEST_TEXT_PATH}")
-    with open(TEST_TEXT_PATH, "r", encoding="utf-8") as f:
+    with open(TEST_TEXT_PATH, encoding="utf-8") as f:
         return f.read()
 
 
-def _run_profiling(func, *args, prof_path, summary_path, request):
+def _run_profiling(
+    func: Callable[..., Any],
+    *args: object,
+    prof_path: Path,
+    summary_path: Path,
+    request: pytest.FixtureRequest,
+) -> None:
     """Helper to run a function with cProfile, save results, and store a summary."""
     profiler = cProfile.Profile()
     profiler.enable()
@@ -46,17 +55,22 @@ def _run_profiling(func, *args, prof_path, summary_path, request):
     summary = s.getvalue()
 
     # Store the summary in the pytest config object
-    if not hasattr(request.config, "_performance_summaries"):
-        request.config._performance_summaries = []
-    request.config._performance_summaries.append(
+    if not hasattr(request.config, "_performance_summaries"):  # type: ignore
+        request.config._performance_summaries = []  # type: ignore
+    request.config._performance_summaries.append(  # type: ignore
         f"\n--- Performance Summary for {prof_path.name} ---\n{summary}"
     )
 
 
-def test_performance_jieba_cut(test_text_content, request, capsys):
+def test_performance_jieba_cut(
+    test_text_content: str,
+    request: pytest.FixtureRequest,
+    capsys: CaptureFixture[str],
+    small_dict_tokenizer: jieba_fast_dat.Tokenizer,
+) -> None:
     """Profiles jieba.cut performance."""
     _run_profiling(
-        jieba.cut,
+        small_dict_tokenizer.cut,
         test_text_content,
         prof_path=CUT_PROF_PATH,
         summary_path=CUT_SUMMARY_PATH,
@@ -68,10 +82,15 @@ def test_performance_jieba_cut(test_text_content, request, capsys):
     assert CUT_SUMMARY_PATH.stat().st_size > 0  # Ensure file is not empty
 
 
-def test_performance_posseg_cut(test_text_content, request, capsys):
+def test_performance_posseg_cut(
+    test_text_content: str,
+    request: pytest.FixtureRequest,
+    capsys: CaptureFixture[str],
+    pos_tokenizer: jieba_fast_dat.posseg.POSTokenizer,
+) -> None:
     """Profiles jieba.posseg.cut performance."""
     _run_profiling(
-        posseg.cut,
+        pos_tokenizer.cut,
         test_text_content,
         prof_path=POS_PROF_PATH,
         summary_path=POS_SUMMARY_PATH,

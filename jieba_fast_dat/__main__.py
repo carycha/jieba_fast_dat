@@ -1,11 +1,14 @@
 """Jieba command line interface."""
+
 import sys
+from argparse import ArgumentParser
+from collections.abc import Iterator
+
 import jieba_fast_dat
 from jieba_fast_dat import text_type
-from argparse import ArgumentParser
 
 parser = ArgumentParser(
-    usage="%s -m jieba [options] filename" % sys.executable,
+    usage=f"{sys.executable} -m jieba [options] filename",
     description="Jieba command line interface.",
     epilog="If no filename specified, use STDIN instead.",
 )
@@ -16,7 +19,10 @@ parser.add_argument(
     default=" / ",
     nargs="?",
     const=" ",
-    help="use DELIM instead of ' / ' for word delimiter; or a space if it is used without DELIM",
+    help=(
+        "use DELIM instead of ' / ' for word delimiter; "
+        "or a space if it is used without DELIM"
+    ),
 )
 parser.add_argument(
     "-p",
@@ -24,7 +30,10 @@ parser.add_argument(
     metavar="DELIM",
     nargs="?",
     const="_",
-    help="enable POS tagging; if DELIM is specified, use DELIM instead of '_' for POS delimiter",
+    help=(
+        "enable POS tagging; if DELIM is specified, "
+        "use DELIM instead of '_' for POS delimiter"
+    ),
 )
 parser.add_argument("-D", "--dict", help="use DICT as dictionary")
 parser.add_argument(
@@ -69,7 +78,7 @@ if args.pos:
 
     posdelim = args.pos
 
-    def cutfunc(sentence, _, HMM=True):
+    def cutfunc(sentence: str, cut_all: bool, HMM: bool = True) -> Iterator[str]:
         for w, f in jieba_fast_dat.posseg.cut(sentence, HMM):
             yield w + posdelim + f
 
@@ -79,7 +88,7 @@ else:
 delim = text_type(args.delimiter)
 cutall = args.cutall
 hmm = args.hmm
-fp = open(args.filename, "r") if args.filename else sys.stdin
+fp = open(args.filename) if args.filename else sys.stdin
 
 if args.dict:
     jieba_fast_dat.initialize(args.dict)

@@ -1,19 +1,36 @@
+import gc  # Add import gc
 
-def test_bug_repeated_char_segmentation(pos_tokenizer):
+from jieba.posseg import POSTokenizer as OriginalPOSTokenizer
+
+from jieba_fast_dat.posseg import POSTokenizer as FastPOSTokenizer
+
+
+def test_bug_repeated_char_segmentation(
+    fast_pos_tokenizer: FastPOSTokenizer, orig_pos_tokenizer: OriginalPOSTokenizer
+) -> None:
     """
-    This test addresses a potential bug in the segmentation of phrases 
-    with repeated characters like "又跛又啞".
+    This test addresses a potential bug in the segmentation of phrases
+    with repeated characters like "一是為這".
     It ensures that each character is segmented correctly with its proper POS tag.
     """
-    # The phrase "又跛又啞" means "lame and mute".
-    # "又" is an adverb, "跛" and "啞" are adjectives.
-    words = pos_tokenizer.cut("又跛又啞", HMM=False)
-    result = [(w.word, w.flag) for w in words]
+    test_sent = "一是為這"
 
-    # Based on common POS tagging standards, we expect something like this.
-    # The exact flags might differ, but the segmentation should be ['又', '跛', '又', '啞'].
-    # Let's find out the library's actual tags and lock them in.
-    # After running, we find the tags are 'd' (adverb) and 'a' (adjective).
-    expected = [('又', 'd'), ('跛', 'a'), ('又', 'd'), ('啞', 'a')]
+    # Force garbage collection after tokenizer creation to ensure C++ objects
+    # are released
+    gc.collect()
 
-    assert result == expected, f"Segmentation of '又跛又啞' failed. Expected {expected}, got {result}"
+    # Fast tokenizer
+    fast_words = fast_pos_tokenizer.cut(test_sent, HMM=False)
+    fast_result = [(w.word, w.flag) for w in fast_words]
+
+    # Original jieba tokenizer
+    orig_words = orig_pos_tokenizer.cut(test_sent, HMM=False)
+    orig_result = [
+        (w.word, w.flag) for w in orig_words
+    ]  # Original jieba returns pair objects with .word and .flag
+
+    assert fast_result == orig_result, (
+        f"Segmentation of '{test_sent}' failed.\n"
+        f"Fast: {fast_result}\n"
+        f"Orig: {orig_result}"
+    )

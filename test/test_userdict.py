@@ -1,159 +1,263 @@
 import os
+
+import jieba as original_jieba
+import jieba.posseg as original_jieba_posseg
 import pytest
+
 import jieba_fast_dat
 import jieba_fast_dat.posseg
 
-# Define paths to our test resources
-TEST_DICTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_dicts")
-TEST_TEXTS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test_texts")
-USER_DICT_BASE_PATH = os.path.join(TEST_DICTS_DIR, "test_user_dict_base.txt")
-DICT_BASE_PATH = os.path.join(TEST_DICTS_DIR, "test_dict_base.txt") # Added for main dict
-USER_DICT_ADD_PATH = os.path.join(TEST_DICTS_DIR, "test_user_dict_add.txt")
-MAIN_TEST_TEXT_PATH = os.path.join(TEST_TEXTS_DIR, "main_test_text.txt")
 
-@pytest.fixture
-def custom_tokenizer_with_userdict():
+def test_load_userdict_cut(
+    fast_tokenizer: jieba_fast_dat.Tokenizer, orig_tokenizer: original_jieba.Tokenizer
+) -> None:
     """
-    Fixture that provides a Tokenizer instance initialized with a custom user dictionary
-    and forces HMM=False for segmentation.
+    Test basic segmentation with a custom user dictionary,
+    comparing with original jieba.
     """
-    tokenizer = jieba_fast_dat.Tokenizer()
-    # First set the main dictionary, then load userdict
-    tokenizer.set_dictionary(DICT_BASE_PATH) # Use our base dictionary
-    tokenizer.initialize()
-    tokenizer.load_userdict(USER_DICT_BASE_PATH) # Load user dictionary on top
-
-    # Temporarily override the cut method to force HMM=False
-    original_cut = tokenizer.cut
-    def new_cut(sentence, cut_all=False, HMM=True):
-        return original_cut(sentence, cut_all=cut_all, HMM=False) # Force HMM=False
-    tokenizer.cut = new_cut
-
-    return tokenizer
-
-@pytest.fixture
-def custom_posseg_tokenizer_with_userdict(custom_tokenizer_with_userdict): # Pass custom_tokenizer
-    """
-    Fixture that provides a posseg POSTokenizer instance initialized with a custom user dictionary
-    and forces HMM=False for segmentation.
-    """
-    # posseg uses its own Tokenizer instance internally, we pass our custom one
-    posseg_tokenizer = jieba_fast_dat.posseg.POSTokenizer(tokenizer=custom_tokenizer_with_userdict)
-    # The dictionary and userdict are already loaded in custom_tokenizer_with_userdict,
-    # which is passed as the tokenizer for POSTokenizer.
-    
-    # Temporarily override the cut method to force HMM=False
-    original_cut = posseg_tokenizer.cut
-    def new_cut(sentence, HMM=True):
-        return original_cut(sentence, HMM=False) # Force HMM=False
-    posseg_tokenizer.cut = new_cut
-
-    return posseg_tokenizer
-
-
-def test_load_userdict_cut(custom_tokenizer_with_userdict):
-    """
-    Test basic segmentation with a custom user dictionary.
-    """
-    tokenizer = custom_tokenizer_with_userdict
     test_sent = "賴清德和柯文哲是台灣的政治人物。"
-    words = list(tokenizer.cut(test_sent))
-    assert "賴清德" in words
-    assert "柯文哲" in words
-    assert "政治人物" in words # This should now pass if base dict is loaded correctly
+    fast_words = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words = list(orig_tokenizer.cut(test_sent, HMM=False))
 
-def test_load_userdict_posseg_cut(custom_posseg_tokenizer_with_userdict):
+    assert fast_words == orig_words, (
+        f"test_load_userdict_cut failed:\nFast: {fast_words}\nOrig: {orig_words}"
+    )
+
+
+def test_load_userdict_posseg_cut(
+    fast_pos_tokenizer: jieba_fast_dat.posseg.POSTokenizer,
+    orig_pos_tokenizer: original_jieba_posseg.POSTokenizer,
+) -> None:
     """
-    Test POS tagging with a custom user dictionary.
+    Test POS tagging with a custom user dictionary, comparing with original jieba.
     """
-    posseg_tokenizer = custom_posseg_tokenizer_with_userdict
     test_sent = "賴清德和柯文哲是台灣的政治人物。"
-    words_with_flags = list(posseg_tokenizer.cut(test_sent))
-    assert ("賴清德", "nr") in [(w.word, w.flag) for w in words_with_flags]
-    assert ("柯文哲", "nr") in [(w.word, w.flag) for w in words_with_flags]
-    assert ("政治人物", "n") in [(w.word, w.flag) for w in words_with_flags] # Added assertion
+    fast_words_with_flags = [
+        (w.word, w.flag) for w in fast_pos_tokenizer.cut(test_sent, HMM=False)
+    ]
+    orig_words_with_flags = [
+        (w.word, w.flag) for w in orig_pos_tokenizer.cut(test_sent, HMM=False)
+    ]
 
-def test_add_word(custom_tokenizer_with_userdict):
+    assert fast_words_with_flags == orig_words_with_flags, (
+        "test_load_userdict_posseg_cut failed:\n"
+        f"Fast: {fast_words_with_flags}\n"
+        f"Orig: {orig_words_with_flags}"
+    )
+
+
+def test_add_word(
+    fast_tokenizer: jieba_fast_dat.Tokenizer, orig_tokenizer: original_jieba.Tokenizer
+) -> None:
     """
-    Test adding a new word to the dictionary dynamically.
+    Test adding a new word to the dictionary dynamically,
+    comparing with original jieba.
     """
-    tokenizer = custom_tokenizer_with_userdict
     new_word = "生成式AI"
     test_sent = f"這是一個關於{new_word}的討論。"
 
-    # Before adding, it might be segmented differently
-    words_before = list(tokenizer.cut(test_sent))
-    assert new_word not in words_before # Assuming it's not in base dict
+    # Before adding
+    fast_words_before = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words_before = list(orig_tokenizer.cut(test_sent, HMM=False))
+    assert fast_words_before == orig_words_before, (
+        "test_add_word (before) failed:\n"
+        f"Fast: {fast_words_before}\n"
+        f"Orig: {orig_words_before}"
+    )
 
-    tokenizer.add_word(new_word, freq=10000, tag="n")
-    words_after = list(tokenizer.cut(test_sent))
-    assert new_word in words_after
+    fast_tokenizer.add_word(new_word, freq=10000, tag="n")
+    orig_tokenizer.add_word(new_word, freq=10000, tag="n")
 
-def test_del_word(custom_tokenizer_with_userdict):
+    # After adding
+    fast_words_after = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words_after = list(orig_tokenizer.cut(test_sent, HMM=False))
+    assert fast_words_after == orig_words_after, (
+        "test_add_word (after) failed:\n"
+        f"Fast: {fast_words_after}\n"
+        f"Orig: {orig_words_after}"
+    )
+
+
+def test_del_word(
+    fast_tokenizer: jieba_fast_dat.Tokenizer, orig_tokenizer: original_jieba.Tokenizer
+) -> None:
     """
-    Test deleting a word from the dictionary dynamically.
+    Test deleting a word from the dictionary dynamically,
+    comparing with original jieba.
     """
-    tokenizer = custom_tokenizer_with_userdict
     word_to_delete = "賴清德"
     test_sent = f"這是關於{word_to_delete}的報導。"
 
     # Ensure word is present initially
-    words_before = list(tokenizer.cut(test_sent))
-    assert word_to_delete in words_before
+    fast_words_before = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words_before = list(orig_tokenizer.cut(test_sent, HMM=False))
+    assert fast_words_before == orig_words_before, (
+        "test_del_word (before) failed:\n"
+        f"Fast: {fast_words_before}\n"
+        f"Orig: {orig_words_before}"
+    )
 
-    tokenizer.del_word(word_to_delete)
-    words_after = list(tokenizer.cut(test_sent))
-    assert word_to_delete not in words_after
+    fast_tokenizer.del_word(word_to_delete)
+    orig_tokenizer.del_word(word_to_delete)
 
-# Commenting out due to NameError in library's suggest_freq function
-# def test_suggest_freq(custom_tokenizer_with_userdict):
-#     """
-#     Test suggest_freq functionality.
-#     """
-#     tokenizer = custom_tokenizer_with_userdict
-#     test_sent = "我們中出了叛徒"
-#     # Assuming '中出' is not a single word in base dict, but '我們' and '叛徒' are.
-#     # We want to force '中出' to be a single word.
-#     segment = ("中", "出")
-#     word = "".join(segment)
+    fast_words_after = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words_after = list(orig_tokenizer.cut(test_sent, HMM=False))
+    assert fast_words_after == orig_words_after, (
+        "test_del_word (after) failed:\n"
+        f"Fast: {fast_words_after}\n"
+        f"Orig: {orig_words_after}"
+    )
 
-#     # Before tuning, '中出' should be split
-#     words_before = list(tokenizer.cut(test_sent))
-#     assert word not in words_before
 
-#     tokenizer.suggest_freq(segment, tune=True)
-#     words_after = list(tokenizer.cut(test_sent))
-#     assert word in words_after
-
-def test_non_forced_initialization_userdict():
+def test_suggest_freq(
+    fast_tokenizer: jieba_fast_dat.Tokenizer, orig_tokenizer: original_jieba.Tokenizer
+) -> None:
     """
-    Test that the library does not auto-initialize with default dictionaries
-    when a custom user dictionary is intended to be loaded later.
+    Test suggest_freq functionality, comparing with original jieba.
     """
-    # Create a new Tokenizer instance without explicit dictionary path
-    # It should not load any default dictionary yet.
-    tokenizer = jieba_fast_dat.Tokenizer()
-    
-    # Attempt to cut without initialize or set_dictionary
-    # This should trigger default initialization if not handled carefully
-    test_sent = "這是一個測試句子。"
-    words = list(tokenizer.cut(test_sent, HMM=False))
-    
-    # Assert that it uses some default behavior, but not necessarily our custom userdict
-    # The key here is that it doesn't crash and uses *some* dictionary.
-    assert len(words) > 0
-    assert isinstance(words[0], str)
+    test_sent = "我們中出了叛徒"
+    segment = ("中", "出")
 
-    # Now, load a custom user dictionary and verify it works
-    tokenizer.set_dictionary(DICT_BASE_PATH) # Set main dictionary
-    tokenizer.initialize()
-    tokenizer.load_userdict(USER_DICT_BASE_PATH) # Load user dictionary
-    original_cut = tokenizer.cut
-    def new_cut(sentence, cut_all=False, HMM=True):
-        return original_cut(sentence, cut_all=cut_all, HMM=False) # Force HMM=False
-    tokenizer.cut = new_cut
+    # Before tuning
+    fast_words_before = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words_before = list(orig_tokenizer.cut(test_sent, HMM=False))
+    assert fast_words_before == orig_words_before, (
+        "test_suggest_freq (before) failed:\n"
+        f"Fast: {fast_words_before}\n"
+        f"Orig: {orig_words_before}"
+    )
 
+    fast_tokenizer.suggest_freq(segment, tune=True)
+    orig_tokenizer.suggest_freq(segment, tune=True)
+
+    # After tuning
+    fast_words_after = list(fast_tokenizer.cut(test_sent, HMM=False))
+    orig_words_after = list(orig_tokenizer.cut(test_sent, HMM=False))
+    assert fast_words_after == orig_words_after, (
+        "test_suggest_freq (after) failed:\n"
+        f"Fast: {fast_words_after}\n"
+        f"Orig: {orig_words_after}"
+    )
+
+
+def test_non_forced_initialization_userdict(
+    fast_tokenizer: jieba_fast_dat.Tokenizer, orig_tokenizer: original_jieba.Tokenizer
+) -> None:
+    """
+    Test that a properly initialized tokenizer uses the user dictionary,
+    comparing with original jieba.
+    """
     test_sent_custom = "賴清德是政治人物。"
-    words_custom = list(tokenizer.cut(test_sent_custom))
-    assert "賴清德" in words_custom
-    assert "政治人物" in words_custom
+    fast_words_custom = list(fast_tokenizer.cut(test_sent_custom, HMM=False))
+    orig_words_custom = list(orig_tokenizer.cut(test_sent_custom, HMM=False))
+    assert fast_words_custom == orig_words_custom, (
+        "test_non_forced_initialization_userdict failed:\n"
+        f"Fast: {fast_words_custom}\n"
+        f"Orig: {orig_words_custom}"
+    )
+
+
+def test_load_userdict_file_not_found(
+    fast_tokenizer: jieba_fast_dat.Tokenizer, orig_tokenizer: original_jieba.Tokenizer
+) -> None:
+    """
+    Tests that loading a non-existent user dictionary raises FileNotFoundError
+    for both jieba_fast_dat and original jieba.
+    """
+    non_existent_file = "path/to/a/file/that/does/not/exist.txt"
+
+    with pytest.raises(FileNotFoundError):
+        fast_tokenizer.load_userdict(non_existent_file)
+
+    with pytest.raises(FileNotFoundError):
+        orig_tokenizer.load_userdict(non_existent_file)
+
+
+# Tests from test_change_dictpath.py
+def test_set_dictionary_changes_behavior_on_instance(
+    dict_base_path: str, dict_new_main_path: str
+) -> None:
+    """
+    Tests that tokenizer.set_dictionary() correctly changes an instance's
+    behavior, comparing with original jieba. This is a refactored test that
+    avoids manipulating global state.
+    """
+    test_sent = "程式設計師正在研究元宇宙"
+
+    # Create clean tokenizer instances for this test
+    fast_tokenizer = jieba_fast_dat.Tokenizer()
+    orig_tokenizer = original_jieba.Tokenizer()
+
+    # 1. Initialize with the base dictionary.
+    # In base_dict, "程式設計師" is a word, but "元宇宙" is not.
+    fast_tokenizer.set_dictionary(dict_base_path)
+    fast_tokenizer.initialize()
+    orig_tokenizer.set_dictionary(dict_base_path)
+    orig_tokenizer.initialize()
+
+    fast_seg_list_base = list(fast_tokenizer.cut(test_sent))
+    orig_seg_list_base = list(orig_tokenizer.cut(test_sent))
+    assert fast_seg_list_base == orig_seg_list_base, (
+        "test_set_dictionary (base dict) failed:\n"
+        f"Fast: {fast_seg_list_base}\n"
+        f"Orig: {orig_seg_list_base}"
+    )
+
+    # 2. Change to the 'add' dictionary.
+    # In add_dict, "元宇宙" is a word, but "程式設計師" is not.
+    fast_tokenizer.set_dictionary(dict_new_main_path)
+    orig_tokenizer.set_dictionary(dict_new_main_path)
+
+    fast_seg_list_add = list(fast_tokenizer.cut(test_sent))
+    orig_seg_list_add = list(orig_tokenizer.cut(test_sent))
+    assert fast_seg_list_add == orig_seg_list_add, (
+        "test_set_dictionary (add dict) failed:\n"
+        f"Fast: {fast_seg_list_add}\n"
+        f"Orig: {orig_seg_list_add}"
+    )
+
+    # 3. No cleanup is needed because we only modified local instances.
+
+
+def test_load_userdict_base_file_consistency() -> None:
+    """
+    Tests loading a user dictionary with varied formats (freq-only, tag-only, word-only)
+    and ensures consistency between jieba_fast_dat and original jieba for POS tagging.
+    """
+    # 1. Define paths and test sentences
+    current_dir = os.path.dirname(__file__)
+    user_dict_path = os.path.join(current_dir, "test_dicts", "test_user_dict_base.txt")
+
+    test_sentences = [
+        "我是只有頻次的字",
+        "我是只有詞性的字",
+        "我是沒有頻次跟詞性的字",
+    ]
+
+    # 2. Create clean tokenizer instances
+    fast_tokenizer = jieba_fast_dat.Tokenizer()
+    fast_tokenizer.initialize()
+    fast_pos_tokenizer = jieba_fast_dat.posseg.POSTokenizer(fast_tokenizer)
+
+    orig_tokenizer = original_jieba.Tokenizer()
+    orig_tokenizer.initialize()
+    orig_pos_tokenizer = original_jieba_posseg.POSTokenizer(orig_tokenizer)
+
+    # 3. Load the custom user dictionary
+    fast_tokenizer.load_userdict(user_dict_path)
+    orig_tokenizer.load_userdict(user_dict_path)
+
+    # 4. Perform comparison
+    for sentence in test_sentences:
+        fast_words_with_flags = [
+            (w.word, w.flag) for w in fast_pos_tokenizer.cut(sentence, HMM=False)
+        ]
+        orig_words_with_flags = [
+            (w.word, w.flag) for w in orig_pos_tokenizer.cut(sentence, HMM=False)
+        ]
+
+        assert fast_words_with_flags == orig_words_with_flags, (
+            f"Consistency failed for sentence: '{sentence}'\n"
+            f"Fast: {fast_words_with_flags}\n"
+            f"Orig: {orig_words_with_flags}"
+        )

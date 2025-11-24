@@ -19,6 +19,7 @@
 * **Python 版本限制**：我們擁抱現代開發！僅支持 **Python >= 3.10**。
 
 ## changelog
+- 20251124 整體大幅重構, 確保結果與原生jieba相同, 修復字典錯誤, upgrade version to 0.55
 - 20251106 add pypi install version 0.54
 - 20251106 [0.54] 核心分詞引擎重構，將 Viterbi 完整遷移至 C++ 實現，執行效能大幅提升，並升級至 C++17 標準。
 - 20251102 增加 memory-leak 測試以避免 python, c++ memory leak
@@ -50,7 +51,7 @@ pip install git+https://github.com/carycha/jieba_fast_dat
 ```
 github 安裝指定版號
 ```bash
-pip install git+https://github.com/carycha/jieba_fast_dat@0.54
+pip install git+https://github.com/carycha/jieba_fast_dat@0.55
 ```
 
 ## 🛠️ 使用方式

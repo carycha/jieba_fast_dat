@@ -1,37 +1,52 @@
+from jieba import Tokenizer as OriginalTokenizer
+from jieba.posseg import POSTokenizer as OriginalPOSTokenizer
+
+from jieba_fast_dat import Tokenizer as FastTokenizer
+from jieba_fast_dat.posseg import POSTokenizer as FastPOSTokenizer
 
 
-def test_cut_file_content(tokenizer_base, main_test_text_path):
+def test_cut_file_content(
+    fast_tokenizer: FastTokenizer,
+    orig_tokenizer: OriginalTokenizer,
+    main_test_text_path: str,
+) -> None:
     """
-    Tests that `jieba_fast_dat.cut` can process raw bytes from a file.
+    Tests that `jieba_fast_dat.cut` can process raw bytes from a file,
+    comparing with original jieba.
     """
-    with open(main_test_text_path, 'rb') as f:
+    with open(main_test_text_path, "rb") as f:
         content_bytes = f.read()
-    content_str = content_bytes.decode('utf-8')
-    
-    # The library should handle internal decoding from bytes
-    words = list(tokenizer_base.cut(content_str, HMM=False))
+    content_str = content_bytes.decode("utf-8")
 
-    # We expect the segmentation to be correct based on the dictionary
-    assert "程式設計師" in words
-    assert "賴清德" in words
-    assert "柯文哲" in words
+    fast_words = list(fast_tokenizer.cut(content_str, HMM=False))
+    orig_words = list(orig_tokenizer.cut(content_str, HMM=False))
 
-def test_pos_cut_file_content(pos_tokenizer, main_test_text_path):
+    assert fast_words == orig_words, (
+        f"test_cut_file_content failed:\nFast: {fast_words}\nOrig: {orig_words}"
+    )
+
+
+def test_pos_cut_file_content(
+    fast_pos_tokenizer: FastPOSTokenizer,
+    orig_pos_tokenizer: OriginalPOSTokenizer,
+    main_test_text_path: str,
+) -> None:
     """
     Tests that `jieba_fast_dat.posseg.cut` can process raw bytes from a file
-    and return correct POS tags.
+    and return correct POS tags, comparing with original jieba.
     """
-    with open(main_test_text_path, 'rb') as f:
+    with open(main_test_text_path, "rb") as f:
         content_bytes = f.read()
-    content_str = content_bytes.decode('utf-8')
+    content_str = content_bytes.decode("utf-8")
 
-    words = list(pos_tokenizer.cut(content_str, HMM=False))
+    fast_words = list(fast_pos_tokenizer.cut(content_str, HMM=False))
+    orig_words = list(orig_pos_tokenizer.cut(content_str, HMM=False))
 
-    # Create a dictionary of word->flag for easy lookup
-    word_map = {w.word: w.flag for w in words}
+    fast_words_tuples = [(p.word, p.flag) for p in fast_words]
+    orig_words_tuples = [(p.word, p.flag) for p in orig_words]
 
-    # Assert that key words from both base and user dicts are tagged correctly
-    assert word_map.get("賴清德") == "nr"
-    assert word_map.get("柯文哲") == "nr"
-    assert word_map.get("政治人物") == "n"
-    assert word_map.get("程式設計師") == "n"
+    assert fast_words_tuples == orig_words_tuples, (
+        "test_pos_cut_file_content failed:\n"
+        f"Fast: {fast_words_tuples}\n"
+        f"Orig: {orig_words_tuples}"
+    )

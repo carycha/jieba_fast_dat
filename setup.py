@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
-from setuptools import setup, Extension
-import platform
 import os  # Import os for environment variable checking
+import platform
+
 import pybind11  # Import pybind11
+from setuptools import Extension, setup
 
 # Define the pybind11 extension
 jieba_fast_dat_functions_py3 = Extension(
-    "_jieba_fast_dat_functions_py3",
+    "jieba_fast_dat._jieba_fast_dat_functions_py3",
     sources=[
         "jieba_fast_dat/source/pybind_bindings.cpp"
     ],  # Point to our new pybind11 source
@@ -18,6 +18,9 @@ jieba_fast_dat_functions_py3 = Extension(
         if os.environ.get("ENABLE_ASAN") == "1"
         else []
     ),  # Ensure C++11 or later standard
+    extra_link_args=(
+        ["-fsanitize=address"] if os.environ.get("ENABLE_ASAN") == "1" else []
+    ),
 )
 
 

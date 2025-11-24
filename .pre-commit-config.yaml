@@ -1,25 +1,46 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 23.3.0 # Use a specific version of black
+  # --- 本地 Hook：核心 Python 工具 (使用 uv run 保持環境一致性) ---
+  - repo: local
     hooks:
-      - id: black
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9 # Use the latest version
-    hooks:
-      - id: ruff
+      # 1. ruff-format (格式化 - 必須最先，且不可修復)
       - id: ruff-format
+        name: 🧹 ruff format (Formatter)
+        entry: uv run ruff format
+        language: system
+        types: [python]
+        # files: \.py$
+
+      # 2. ruff check --fix (Linting & 自動修復)
+      # 處理大部分風格和簡單的潛在錯誤。
+      - id: ruff
+        name: 🛠️ ruff check (Linter & Auto-Fix)
+        entry: uv run ruff check
+        language: system
+        types: [python]
+        # files: \.py$
+
+      # 3. pyright (靜態型別檢查 - 只檢查，不修改)
+      # 放在格式化和 Linting 之後，檢查最終程式碼的型別正確性。
+      - id: pyright
+        name: 🔍 pyright (Type Checker)
+        entry: uv run pyright
+        language: system
+        types: [python]
+        # 由於 pyright 已在 pyproject.toml 中配置，無需額外 args
+
+      # 4. pytest (測試 - 總是在最後執行)
+      - id: pytest
+        name: 🧪 pytest (Run Tests)
+        entry: uv run pytest
+        language: system
+        always_run: true
+        pass_filenames: false
+
+  # --- 外部標準 Hook (通常較少衝突) ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0 # Use a specific version of pre-commit-hooks
+    rev: v4.6.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
-  # - repo: local
-  #   hooks:
-  #     - id: pytest
-  #       name: pytest
-  #       entry: uv run pytest
-  #       language: system
-  #       always_run: true
-  #       pass_filenames: false

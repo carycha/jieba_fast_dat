@@ -1,8 +1,5 @@
-from __future__ import absolute_import
-from .tfidf import TFIDF
 from .textrank import TextRank
-
-
+from .tfidf import TFIDF
 
 default_tfidf = TFIDF()
 default_textrank = TextRank()
@@ -12,6 +9,6 @@ set_idf_path = default_tfidf.set_idf_path
 textrank = default_textrank.extract_tags
 
 
-def set_stop_words(stop_words_path):
+def set_stop_words(stop_words_path: str) -> None:
     default_tfidf.set_stop_words(stop_words_path)
     default_textrank.set_stop_words(stop_words_path)
