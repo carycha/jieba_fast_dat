@@ -1,4 +1,3 @@
-import io
 import pickle
 import re
 from collections.abc import Iterator
@@ -7,7 +6,10 @@ from typing import IO
 import jieba_fast_dat
 
 # Import new C++ function for HMM=False POS tagging
-from jieba_fast_dat._jieba_fast_dat_functions_py3 import _posseg_cut_DAG_NO_HMM_cpp
+from jieba_fast_dat._jieba_fast_dat_functions_py3 import (
+    _load_word_tag_pybind,  # <--- Added this import
+    _posseg_cut_DAG_NO_HMM_cpp,
+)
 
 from .._compat import strdecode
 from ..utils import get_module_res
@@ -36,10 +38,13 @@ def _load_posseg_models() -> tuple[
     return start_p, trans_p, emit_p, char_state_tab_p
 
 
-_start_P, _trans_P, _emit_P, _char_state_tab_P = _load_posseg_models()
+_start_P_dict, _trans_P_dict, _emit_P_dict, _char_state_tab_P_dict = (
+    _load_posseg_models()
+)
 
-# Pass loaded models to the C++ backend
-jieba_fast_dat.load_hmm_model(_start_P, _trans_P, _emit_P, _char_state_tab_P)
+jieba_fast_dat.load_hmm_model(
+    _start_P_dict, _trans_P_dict, _emit_P_dict, _char_state_tab_P_dict
+)
 
 
 re_han_detail = re.compile(r"([\u4E00-\u9FD5]+)")
@@ -98,52 +103,28 @@ class POSTokenizer:
 
     def load_word_tag(self, f: str | IO[bytes]) -> None:
         self.word_tag_tab = {}
+        file_path_to_load: str
+
         if isinstance(f, str):
-            try:
-                f_obj = open(f, encoding="utf-8")
-                f_name = f
-            except OSError as e:
-                # Fallback to resource path if it's not a direct file path
-                res_file_obj = get_module_res("jieba_fast_dat", f)
-                if hasattr(res_file_obj, "read") and hasattr(res_file_obj, "seek"):
-                    res_file_obj.seek(0)
-                    if isinstance(res_file_obj, io.TextIOBase):
-                        f_obj = res_file_obj
-                    else:
-                        f_obj = io.TextIOWrapper(res_file_obj, encoding="utf-8")
-                else:
-                    raise TypeError(
-                        "Invalid resource object returned by get_module_res"
-                    ) from e
-                f_name = getattr(res_file_obj, "name", "<resource-file>")
-        else:  # f is a file-like object
-            if hasattr(f, "read") and hasattr(f, "seek"):
-                f.seek(0)  # Reset file pointer to the beginning
-                if isinstance(f, io.TextIOBase):
-                    f_obj = f  # Already a text stream
-                else:
-                    f_obj = io.TextIOWrapper(f, encoding="utf-8")  # Wrap binary stream
+            file_path_to_load = f
+        else:  # f is an IO[bytes] object
+            # If f is opened from get_module_res, it will have a name attribute.
+            # We prioritize getting the file path if available.
+            if (
+                hasattr(f, "name")
+                and isinstance(f.name, str)
+                and not f.name.startswith("<")
+            ):
+                file_path_to_load = f.name
             else:
                 raise TypeError(
-                    "Invalid file-like object provided to load_word_tag"
-                ) from None
-            f_name = getattr(
-                f, "name", "<file-like>"
-            )  # Get name if available, otherwise a placeholder
+                    "C++ _load_word_tag_pybind requires a file path. "
+                    "File-like objects are not directly supported for now, "
+                    "unless they have a 'name' attribute representing a file path."
+                )
 
-        for lineno, line in enumerate(f_obj, 1):
-            try:
-                line_str = str(line).strip()
-                if not line_str:
-                    continue
-                word, _, tag = line_str.split(" ")
-                self.word_tag_tab[word] = tag
-            except Exception as e:
-                raise ValueError(
-                    f"invalid POS dictionary entry in {f_name} "
-                    f"at Line {lineno}: {line_str}"
-                ) from e
-        f_obj.close()
+        # Call the C++ function to load the word tags
+        _load_word_tag_pybind(file_path_to_load, self.word_tag_tab)
 
     def makesure_userdict_loaded(self) -> None:
         if self.tokenizer.user_word_tag_tab:
@@ -178,7 +159,6 @@ class POSTokenizer:
     def __cut_DAG_NO_HMM(self, sentence: str) -> Iterator[pair]:
         result = _posseg_cut_DAG_NO_HMM_cpp(
             self.tokenizer.dat,
-            self.tokenizer.user_freq,
             sentence,
             self.word_tag_tab,
             float(self.tokenizer.total),
@@ -192,7 +172,6 @@ class POSTokenizer:
         self.tokenizer.check_initialized()
         jieba_fast_dat._jieba_fast_dat_functions._get_DAG_and_calc(
             self.tokenizer.dat,
-            self.tokenizer.user_freq,
             sentence,
             route,
             float(self.tokenizer.total),

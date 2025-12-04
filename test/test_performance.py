@@ -46,7 +46,7 @@ def _run_profiling(
     # Write pstats output to a file
     with open(summary_path, "w", encoding="utf-8") as f:
         stats = pstats.Stats(str(prof_path), stream=f)
-        stats.sort_stats(pstats.SortKey.CUMULATIVE).print_stats(20)
+        stats.sort_stats(pstats.SortKey.CUMULATIVE).print_stats(100)
 
     # Capture pstats output to a string for internal use if needed
     s = io.StringIO()

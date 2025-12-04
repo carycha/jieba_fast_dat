@@ -116,3 +116,5 @@ cut_summary.*
 pos_summary.*
 .gemini/
 .nexus/
+.bmad
+docs/

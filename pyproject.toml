@@ -19,7 +19,7 @@ filterwarnings = [
 
 [project]
 name = "jieba_fast_dat"
-version = "0.55"
+version = "0.56"
 description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
 readme = "README.md"
 authors = [
@@ -111,7 +111,8 @@ ignore = [
     # "ANN201", # 忽略公共函式的回傳類型註釋
     # 如果您只想忽略所有「缺少返回型別」的規則，可以使用 `ANN2`
     "ANN2",
-    "N802"  #先跳過小寫+底線變數命名規則
+    "N802",  #先跳過小寫+底線變數命名規則
+    "ANN401" # Ignore dynamically typed expressions (typing.Any) in *args and **kwargs
 ]
 
 [tool.ruff.format]

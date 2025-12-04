@@ -1,12 +1,15 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/functional.h>
+#include <pybind11/stl_bind.h>
+#include <pybind11/detail/common.h> // For PyCallable_Check
 
 #include <math.h>
 #include <stdlib.h>
 #include <limits> // For std::numeric_limits
 #include <array> // For std::array
 #include <string> // For std::string
-#include "cedar.h"
+#include "cedarpp.h"
 #include <unordered_map>
 #include <vector>
 #include <set>
@@ -60,11 +63,164 @@ class DatTrie {
 public:
     DatTrie() {}
 
-    void build(const std::vector<std::pair<std::string, int>>& word_freqs) {
-        trie_.clear();
-        for (const auto& pair : word_freqs) {
-            trie_.update(pair.first.c_str(), pair.first.length(), pair.second);
+    double build(size_t num_keys, const char** keys, const size_t* lengths, const int* freqs) {
+        trie_.clear(); // Clear existing trie before building
+        double total_freq = 0.0;
+        // cedar::da::build expects keys to be sorted. My `all_words` map ensures this.
+        trie_.build(num_keys, keys, lengths, freqs);
+        for(size_t i = 0; i < num_keys; ++i) {
+            total_freq += freqs[i];
         }
+        return total_freq;
+    }
+
+    double build(py::iterable word_freqs_iterable) {
+        trie_.clear(); // Clear existing trie on build.
+        double total_freq = 0.0;
+        for (py::handle item : word_freqs_iterable) {
+            py::tuple pair = item.cast<py::tuple>();
+            std::string word = pair[0].cast<std::string>();
+            int freq = pair[1].cast<int>();
+            trie_.update(word.c_str(), word.length(), freq);
+            total_freq += static_cast<double>(freq);
+        }
+        return total_freq;
+    }
+
+    void clear() {
+        trie_.clear();
+    }
+
+    void add_word(const std::string& word, int freq) {
+        trie_.update(word.c_str(), word.length(), freq);
+    }
+
+    void del_word(const std::string& word) {
+        trie_.erase(word.c_str(), word.length());
+    }
+
+
+    // New method for loading dictionary from file, including prefix generation, entirely in C++
+    double load_from_file_and_build(const std::string& filename, py::dict user_word_tag_tab_py) {
+        trie_.clear(); // Clear existing trie before loading new dictionary
+
+        std::ifstream file(filename);
+        if (!file.is_open()) {
+            throw std::runtime_error("Could not open dictionary file: " + filename);
+        }
+
+        std::string line;
+        bool first_line = true;
+        std::map<std::string, int> all_words; // Use std::map to store words, which keeps them sorted, crucial for cedar::da::build
+        std::unordered_map<std::string, std::string> tags_to_update_py; // For batch updating Python dict
+
+        while (std::getline(file, line)) {
+            // Handle BOM on first line if present
+            if (first_line) {
+                first_line = false;
+                if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
+                    line = line.substr(3);
+                }
+            }
+
+            // Trim whitespace
+            size_t first = line.find_first_not_of(" \t\r\n");
+            size_t last = line.find_last_not_of(" \t\r\n");
+            if (std::string::npos == first || std::string::npos == last) {
+                continue; // Empty or all-whitespace line
+            }
+            line = line.substr(first, (last - first + 1));
+
+            if (line.empty() || line[0] == '#') continue; // Skip empty lines and comments
+
+            std::string word_str;
+            int freq = 3; // Default frequency (jieba's default for new words)
+            std::string tag_str = "x"; // Default tag
+
+            std::istringstream iss(line);
+            std::vector<std::string> parts;
+            std::string part;
+            while (iss >> part) {
+                parts.push_back(part);
+            }
+
+            if (parts.empty()) continue;
+
+            word_str = parts[0];
+            if (parts.size() > 1) {
+                // Check if the second part is a number (frequency)
+                bool is_digit = !parts[1].empty() && std::all_of(parts[1].begin(), parts[1].end(), ::isdigit);
+                if (is_digit) {
+                    freq = std::stoi(parts[1]);
+                } else {
+                    tag_str = parts[1];
+                }
+            }
+            if (parts.size() > 2) {
+                tag_str = parts[2];
+            }
+
+            // Add or update the main word in all_words
+            all_words[word_str] = freq;
+            tags_to_update_py[word_str] = tag_str; // Store tag for batch update
+
+            // Generate prefixes for the main word and add them with freq 0 if not present
+            size_t current_pos = 0;
+            const char* word_cstr = word_str.c_str();
+            size_t word_len = word_str.length();
+
+            while (current_pos < word_len) {
+                size_t char_len = 1;
+                unsigned char c = static_cast<unsigned char>(word_cstr[current_pos]);
+                if (c < 0x80) char_len = 1; // 1-byte UTF-8
+                else if ((c & 0xE0) == 0xC0) char_len = 2; // 2-byte UTF-8
+                else if ((c & 0xF0) == 0xE0) char_len = 3; // 3-byte UTF-8
+                else if ((c & 0xF8) == 0xF0) char_len = 4; // 4-byte UTF-8
+                else { // Invalid UTF-8 start byte, or more than 4 bytes, treat as 1 byte
+                    char_len = 1;
+                }
+
+                if (current_pos + char_len > word_len) break; // Malformed UTF-8 or end of string
+
+                std::string wfrag = word_str.substr(0, current_pos + char_len);
+
+                if (wfrag.length() < word_str.length()) { // Don't add the full word as a 0-freq prefix
+                    // Insert with 0 frequency only if it doesn't already exist as a main word
+                    all_words.insert({wfrag, 0});
+                }
+                current_pos += char_len;
+            }
+        }
+        file.close(); // Close file after processing all lines
+
+        // Prepare data for cedar::da::build
+        std::vector<const char*> keys_data;
+        std::vector<size_t> lengths_data;
+        std::vector<int> freqs_data;
+
+        keys_data.reserve(all_words.size());
+        lengths_data.reserve(all_words.size());
+        freqs_data.reserve(all_words.size());
+
+        double final_total_freq = 0.0;
+        // Populate keys, lengths, freqs vectors and calculate total_freq
+        for (const auto& pair : all_words) {
+            keys_data.push_back(pair.first.c_str());
+            lengths_data.push_back(pair.first.length());
+            freqs_data.push_back(pair.second);
+            final_total_freq += static_cast<double>(pair.second);
+        }
+
+        // Build DatTrie once
+        trie_.build(keys_data.size(), keys_data.data(), lengths_data.data(), freqs_data.data());
+
+        // Batch update Python user_word_tag_tab_py
+        user_word_tag_tab_py.clear(); // Clear existing content
+        for (const auto& pair : tags_to_update_py) {
+            user_word_tag_tab_py[py::str(pair.first)] = py::str(pair.second);
+        }
+
+        return final_total_freq;
     }
 
     int search(const std::string& word) {
@@ -81,6 +237,33 @@ public:
 
     int save(const std::string& filename) {
         return trie_.save(filename.c_str());
+    }
+
+    size_t num_keys() const {
+        return trie_.num_keys();
+    }
+
+    void extract_words(std::vector<std::pair<std::string, int>>& words_with_freqs) {
+        size_t count = trie_.num_keys();
+        if (count == 0) {
+            return;
+        }
+        words_with_freqs.reserve(count);
+
+        char key_buf[1024]; // Assuming max key length 1023
+        cedar::npos_t from = 0; // Represents the node ID
+        size_t len_p = 0;       // Represents the length of the current key
+
+        // Iterate through all keys in the trie
+        for (int val = trie_.begin(from, len_p);
+             val != cedar::da<int>::CEDAR_NO_PATH;
+             val = trie_.next(from, len_p)) {
+
+            // Reconstruct the key string using suffix method
+            // The 'len_p' argument to suffix should be the length of the key
+            trie_.suffix(key_buf, len_p, from);
+            words_with_freqs.emplace_back(std::string(key_buf, len_p), val);
+        }
     }
 
 private:
@@ -112,7 +295,7 @@ py::object get_dict_item_safe(py::dict d, py::object key, py::object default_val
 }
 
 
-int _calc_pybind(DatTrie& trie, py::sequence sentence, py::dict DAG, py::dict& route, py::object total_obj, py::dict user_freq)
+int _calc_pybind(DatTrie& trie, py::sequence sentence, py::dict DAG, py::dict& route, py::object total_obj)
 {
     double total;
     if (py::isinstance<py::float_>(total_obj) || py::isinstance<py::int_>(total_obj)) {
@@ -153,15 +336,9 @@ int _calc_pybind(DatTrie& trie, py::sequence sentence, py::dict DAG, py::dict& r
             py::object slice_of_sentence_obj = sentence[slice_obj];
             std::string slice_of_sentence = slice_of_sentence_obj.cast<std::string>();
 
-            // Check user_freq first
-            if (user_freq.contains(slice_of_sentence_obj)) {
-                fq_val = get_long_from_py_object(user_freq[slice_of_sentence_obj]);
-            } else {
-                fq_val = trie.search(slice_of_sentence);
-                if (fq_val == -1) fq_val = 0;
-            }
+            fq_val = trie.search(slice_of_sentence);
+            if (fq_val == -1) fq_val = 0;
             if (fq_val == 0) fq_val = 1;
-
 
             // PyDict_GetItem(route, PyInt_FromLong((long)x + 1))
             py::object route_key = py::cast(x_val + 1);
@@ -223,7 +400,7 @@ int _get_DAG_pybind(py::dict DAG, py::dict FREQ, py::sequence sentence)
     return 1;
 }
 
-int _get_DAG_and_calc_pybind(DatTrie& trie, py::dict FREQ, py::sequence sentence, py::list route, double total)
+int _get_DAG_and_calc_pybind(DatTrie& trie, py::sequence sentence, py::list route, double total)
 {
     const py::ssize_t N = py::len(sentence);
     // Using std::vector for dynamic arrays
@@ -255,15 +432,10 @@ int _get_DAG_and_calc_pybind(DatTrie& trie, py::dict FREQ, py::sequence sentence
             bool found = false;
             int freq = 0;
 
-            if (FREQ.contains(frag)) {
-                 found = true;
-                 freq = get_long_from_py_object(FREQ[frag]);
-            } else {
-                 std::string frag_str = frag.cast<std::string>();
-                 freq = trie.search(frag_str);
-                 if (freq != -1) {
-                     found = true;
-                 }
+            std::string frag_str = frag.cast<std::string>();
+            freq = trie.search(frag_str);
+            if (freq != -1) {
+                found = true;
             }
 
             if (!found) {
@@ -296,16 +468,12 @@ int _get_DAG_and_calc_pybind(DatTrie& trie, py::dict FREQ, py::sequence sentence
             py::slice slice_obj(py::cast(idx), py::cast(x_val + 1), py::none());
             py::object slice_of_sentence = sentence[slice_obj];
 
-            if (FREQ.contains(slice_of_sentence)) {
-                fq_val = get_long_from_py_object(FREQ[slice_of_sentence]);
+            std::string slice_str = slice_of_sentence.cast<std::string>();
+            int trie_freq = trie.search(slice_str);
+            if (trie_freq != -1) {
+                fq_val = trie_freq;
             } else {
-                std::string slice_str = slice_of_sentence.cast<std::string>();
-                int trie_freq = trie.search(slice_str);
-                if (trie_freq != -1) {
-                    fq_val = trie_freq;
-                } else {
-                    fq_val = 0;
-                }
+                fq_val = 0;
             }
             if (fq_val == 0) fq_val = 1;
 
@@ -652,78 +820,65 @@ py::tuple _posseg_viterbi_cpp(std::u32string obs) {
     return py::make_tuple(result.prob, word_pos_tags_route);
 }
 
-// Helper to convert UTF-8 string to u32string
-std::u32string utf8_to_u32(const std::string& s) {
-    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
-    return conv.from_bytes(s);
-}
-
 // Helper to convert u32string to UTF-8 string
 std::string u32_to_utf8(const std::u32string& s) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
     return conv.to_bytes(s);
 }
 
-void load_userdict_pybind(DatTrie& trie, py::dict user_freq, py::dict user_word_tag_tab, const std::string& filename, py::object add_force_split_func) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Could not open file: " + filename);
+double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_word_tag_tab_py, py::object batch_add_force_split_func) {
+    // Collect all words and their frequencies, including those currently in the trie and from user dict
+    // Use std::map to ensure keys are sorted, required for cedar::da::build
+    std::map<std::string, int> all_words;
+    std::unordered_map<std::string, std::string> tags_from_user_dict_file; // Collect tags explicitly from the user dict file
+    std::vector<std::string> force_split_words_to_add; // Collect words for batch force_split
+
+    // Phase 1: Extract all existing words from the trie
+    // This is necessary because user dict words might overlap with existing main dict words.
+    // The user dict should have priority.
+    std::vector<std::pair<std::string, int>> existing_trie_words;
+    trie.extract_words(existing_trie_words);
+    for (const auto& pair : existing_trie_words) {
+        all_words[pair.first] = pair.second;
     }
 
-    std::string line;
-    bool first_line = true;
-    while (std::getline(file, line)) {
-        // Handle BOM on first line
-        if (first_line) {
-            first_line = false;
-            if (line.size() >= 3 && line[0] == '\xEF' && line[1] == '\xBB' && line[2] == '\xBF') {
+    // Phase 2: Process user dictionary lines from py::list
+    bool first_line_processed = false; // To handle BOM if any, though Python should handle this
+    for (py::handle line_handle : dict_lines) {
+        std::string line = line_handle.cast<std::string>();
+
+        // Simplified BOM handling, typically Python takes care of this
+        if (!first_line_processed) {
+            first_line_processed = true;
+            if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
                 line = line.substr(3);
             }
         }
 
-        // Trim whitespace (simple version, mostly for newline)
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) {
-            line.pop_back();
+        // Trim whitespace and skip comments
+        size_t first = line.find_first_not_of(" \t\r\n");
+        size_t last = line.find_last_not_of(" \t\r\n");
+        if (std::string::npos == first || std::string::npos == last) {
+            continue; // Empty or all-whitespace line
         }
-        size_t start = 0;
-        while (start < line.size() && line[start] == ' ') {
-            start++;
-        }
-        if (start < line.size()) {
-            line = line.substr(start);
-        } else {
-            continue; // Empty line
-        }
+        line = line.substr(first, (last - first + 1));
+        if (line.empty() || line[0] == '#') continue;
 
-        if (line.empty()) continue;
+        std::string word_str;
+        int freq = 3; // Default frequency based on jieba's default for add_word
+        std::string tag = "x"; // Default tag: 'x' for unknown/other
 
+        std::istringstream iss(line);
         std::vector<std::string> parts;
-        // Manual split to match Python's split(" ", 2)
-        size_t pos = 0;
-        int count = 0;
-        while (pos < line.length() && count < 2) {
-            size_t next_pos = line.find(' ', pos);
-            if (next_pos == std::string::npos) {
-                parts.push_back(line.substr(pos));
-                pos = line.length();
-            } else {
-                parts.push_back(line.substr(pos, next_pos - pos));
-                pos = next_pos + 1;
-            }
-            count++;
-        }
-        if (pos < line.length()) {
-            parts.push_back(line.substr(pos));
+        std::string part;
+        while (iss >> part) {
+            parts.push_back(part);
         }
 
         if (parts.empty()) continue;
 
-        const std::string& word_str = parts[0];
-        int freq = 1000; // Default
-        std::string tag = "x"; // Default
-
+        word_str = parts[0];
         if (parts.size() > 1) {
-            // Check if parts[1] is digit
             bool is_digit = !parts[1].empty() && std::all_of(parts[1].begin(), parts[1].end(), ::isdigit);
             if (is_digit) {
                 freq = std::stoi(parts[1]);
@@ -731,52 +886,84 @@ void load_userdict_pybind(DatTrie& trie, py::dict user_freq, py::dict user_word_
                 tag = parts[1];
             }
         }
-
-        if (parts.size() == 3) {
+        if (parts.size() > 2) {
             tag = parts[2];
         }
 
-        py::str py_word = py::str(word_str);
-        user_freq[py_word] = freq;
-        if (!tag.empty()) {
-            user_word_tag_tab[py_word] = py::str(tag);
-        }
+        // Add to all_words (user words override existing words)
+        all_words[word_str] = freq;
+        tags_from_user_dict_file[word_str] = tag; // Store tag only from user dict
 
-        // Add prefixes
-        size_t len = word_str.length();
+        // Handle prefixes for the user word
+        size_t len_word = word_str.length();
         const char* str_ptr = word_str.c_str();
-        for (size_t i = 0; i < len; ) {
-            // Move to next char
+        for (size_t i = 0; i < len_word; ) {
             size_t char_len = 1;
             unsigned char c = static_cast<unsigned char>(str_ptr[i]);
             if (c < 0x80) char_len = 1;
             else if ((c & 0xE0) == 0xC0) char_len = 2;
             else if ((c & 0xF0) == 0xE0) char_len = 3;
             else if ((c & 0xF8) == 0xF0) char_len = 4;
+            else { // Invalid UTF-8 start byte, or more than 4 bytes, treat as 1 byte
+                char_len = 1;
+            }
 
+            if (i + char_len > len_word) break; // Malformed UTF-8
+
+            std::string wfrag = word_str.substr(0, i + char_len);
+
+            // Only add if it's not the full word and not already present
+            if (wfrag.length() < word_str.length()) {
+                all_words.insert({wfrag, 0}); // Prefixes get 0 frequency
+            }
             i += char_len;
-
-            // Optimization: Check main dict (trie) using pointer and length
-            if (trie.search(str_ptr, i) != -1) {
-                continue;
-            }
-
-            // Now check user_freq
-            py::str py_wfrag = py::str(str_ptr, i);
-            if (user_freq.contains(py_wfrag)) {
-                continue;
-            }
-
-            user_freq[py_wfrag] = 0;
         }
 
-        if (freq == 0) {
-            add_force_split_func(py_word);
+        if (freq == 0) { // Collect words that need to be force split
+            force_split_words_to_add.push_back(word_str);
         }
     }
+
+    // Phase 3: Prepare data for rebuilding
+    // Since all_words is std::map, keys are already sorted.
+    std::vector<const char*> keys;
+    std::vector<size_t> lengths;
+    std::vector<int> freqs;
+
+    keys.reserve(all_words.size());
+    lengths.reserve(all_words.size());
+    freqs.reserve(all_words.size());
+
+    double new_total_freq = 0.0;
+    for (const auto& pair : all_words) {
+        keys.push_back(pair.first.c_str());
+        lengths.push_back(pair.first.length());
+        freqs.push_back(pair.second);
+        new_total_freq += pair.second;
+    }
+
+    // Phase 4: Rebuild DatTrie
+    trie.clear(); // Clear existing trie
+    trie.build(keys.size(), keys.data(), lengths.data(), freqs.data());
+
+    // Phase 5: Update Python user_word_tag_tab
+    // Clear user_word_tag_tab_py and repopulate ONLY with tags explicitly from the user dict file
+    user_word_tag_tab_py.clear();
+    for (const auto& pair : tags_from_user_dict_file) {
+        user_word_tag_tab_py[py::str(pair.first)] = py::str(pair.second);
+    }
+
+    // Phase 6: Batch call batch_add_force_split_func if provided
+    if (!force_split_words_to_add.empty() && batch_add_force_split_func.ptr() != nullptr && PyCallable_Check(batch_add_force_split_func.ptr())) {
+        py::list py_force_split_words = py::cast(force_split_words_to_add);
+        batch_add_force_split_func(py_force_split_words);
+    }
+
+    return new_total_freq;
 }
 
-void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dict char_state_tab_p) {
+
+void load_hmm_model(py::dict start_p_dict, py::dict trans_p_dict, py::dict emit_p_dict, py::dict char_state_tab_p_dict) {
     // Clear previous data
     HMM::pos_tag_map.clear();
     HMM::reverse_pos_tag_map.clear();
@@ -788,8 +975,8 @@ void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dic
 
     // Build pos_tag maps from start_p keys
     int tag_id_counter = 0;
-    for (auto item : start_p) {
-        py::tuple state_tag = item.first.cast<py::tuple>();
+    for (auto item : start_p_dict) { // Iterate over dict items directly
+        py::tuple state_tag = item.first.cast<py::tuple>(); // key part: (char, str) tuple
         std::string tag = state_tag[1].cast<std::string>();
         if (HMM::pos_tag_map.find(tag) == HMM::pos_tag_map.end()) {
             HMM::pos_tag_map[tag] = tag_id_counter;
@@ -805,11 +992,11 @@ void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dic
     HMM::trans_P_keys.assign(HMM::NUM_STATES, std::vector<int>());
 
     // Populate start_P
-    for (auto item : start_p) {
+    for (auto item : start_p_dict) {
         py::tuple state_tag = item.first.cast<py::tuple>();
         char state = state_tag[0].cast<std::string>()[0];
         std::string tag = state_tag[1].cast<std::string>();
-        double prob = item.second.cast<double>();
+        double prob = item.second.cast<double>(); // Access value directly
         int id = HMM::get_state_tag_id(tag, state);
         if (id != -1) {
             HMM::start_P[id] = prob;
@@ -817,14 +1004,14 @@ void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dic
     }
 
     // Populate trans_P and trans_P_keys
-    for (auto from_item : trans_p) {
+    for (auto from_item : trans_p_dict) {
         py::tuple from_state_tag = from_item.first.cast<py::tuple>();
         char from_state = from_state_tag[0].cast<std::string>()[0];
         std::string from_tag = from_state_tag[1].cast<std::string>();
         int from_id = HMM::get_state_tag_id(from_tag, from_state);
         if (from_id == -1) continue;
 
-        py::dict to_dict = from_item.second.cast<py::dict>();
+        py::dict to_dict = from_item.second.cast<py::dict>(); // Inner dict
         for (auto to_item : to_dict) {
             py::tuple to_state_tag = to_item.first.cast<py::tuple>();
             char to_state = to_state_tag[0].cast<std::string>()[0];
@@ -839,14 +1026,14 @@ void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dic
     }
 
     // Populate emit_P
-    for (auto item : emit_p) {
+    for (auto item : emit_p_dict) {
         py::tuple state_tag = item.first.cast<py::tuple>();
         char state = state_tag[0].cast<std::string>()[0];
         std::string tag = state_tag[1].cast<std::string>();
         int id = HMM::get_state_tag_id(tag, state);
         if (id == -1) continue;
 
-        py::dict char_prob_dict = item.second.cast<py::dict>();
+        py::dict char_prob_dict = item.second.cast<py::dict>(); // Inner dict
         for (auto char_item : char_prob_dict) {
             std::u32string ch_str = char_item.first.cast<std::u32string>();
             if (!ch_str.empty()) {
@@ -858,14 +1045,14 @@ void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dic
     }
 
     // Populate char_state_tab_P
-    for (auto item : char_state_tab_p) {
+    for (auto item : char_state_tab_p_dict) {
         std::u32string ch_str = item.first.cast<std::u32string>();
         if (!ch_str.empty()) {
             char32_t ch = ch_str[0];
-            py::tuple state_tag_tuple = item.second.cast<py::tuple>();
+            py::list state_tag_list = item.second.cast<py::list>(); // Value is a Python list
             std::vector<int> state_ids;
-            for(auto state_tag_item : state_tag_tuple) {
-                py::tuple state_tag = state_tag_item.cast<py::tuple>();
+            for(py::handle state_tag_item_handle : state_tag_list) { // Iterate over list items
+                py::tuple state_tag = state_tag_item_handle.cast<py::tuple>();
                 char state = state_tag[0].cast<std::string>()[0];
                 std::string tag = state_tag[1].cast<std::string>();
                 int id = HMM::get_state_tag_id(tag, state);
@@ -878,12 +1065,12 @@ void load_hmm_model(py::dict start_p, py::dict trans_p, py::dict emit_p, py::dic
     }
 }
 
-py::dict _get_DAG(DatTrie& trie, py::sequence sentence, py::dict user_freq) {
+py::dict _get_DAG(DatTrie& trie, py::sequence sentence) {
     py::dict DAG;
     const py::ssize_t N = py::len(sentence);
 
     for (py::ssize_t k = 0; k < N; k++) {
-        py::list tmplist;
+        py::list tmplist; // pybind11 list
         py::ssize_t i = k;
 
         while (i < N) {
@@ -893,15 +1080,10 @@ py::dict _get_DAG(DatTrie& trie, py::sequence sentence, py::dict user_freq) {
             bool found = false;
             int freq = 0;
 
-            if (user_freq.contains(frag)) {
-                 found = true;
-                 freq = get_long_from_py_object(user_freq[frag]);
-            } else {
-                 std::string frag_str = frag.cast<std::string>();
-                 freq = trie.search(frag_str);
-                 if (freq != -1) {
-                     found = true;
-                 }
+            std::string frag_str = frag.cast<std::string>();
+            freq = trie.search(frag_str);
+            if (freq != -1) {
+                found = true;
             }
 
             if (!found) {
@@ -923,10 +1105,7 @@ py::dict _get_DAG(DatTrie& trie, py::sequence sentence, py::dict user_freq) {
     return DAG;
 }
 
-int _get_freq(DatTrie& trie, py::dict user_freq, py::object word) {
-    if (user_freq.contains(word)) {
-        return get_long_from_py_object(user_freq[word]);
-    }
+int _get_freq(DatTrie& trie, py::object word) {
     std::string word_str = word.cast<std::string>();
     int freq = trie.search(word_str);
     if (freq != -1) {
@@ -965,7 +1144,6 @@ bool is_english(const std::u32string& s) {
 // C++ implementation of posseg __cut_DAG
 py::list _posseg_cut_DAG_cpp(
     DatTrie& trie,
-    py::dict user_freq,
     const std::u32string& sentence,
     py::dict word_tag_tab,
     double total
@@ -990,15 +1168,10 @@ py::list _posseg_cut_DAG_cpp(
             bool found = false;
             int freq = 0;
 
-            if (user_freq.contains(frag_py)) {
+            std::string frag_str = py::cast<std::string>(frag_py);
+            freq = trie.search(frag_str);
+            if (freq != -1) {
                 found = true;
-                freq = py::cast<int>(user_freq[frag_py]);
-            } else {
-                std::string frag_str = py::cast<std::string>(frag_py);
-                freq = trie.search(frag_str);
-                if (freq != -1) {
-                    found = true;
-                }
             }
 
             if (!found) {
@@ -1028,16 +1201,12 @@ py::list _posseg_cut_DAG_cpp(
             py::str slice_py = u32string_to_pystr(slice);
 
             long fq_val = 1;
-            if (user_freq.contains(slice_py)) {
-                fq_val = py::cast<long>(user_freq[slice_py]);
+            std::string slice_str = py::cast<std::string>(slice_py);
+            int freq = trie.search(slice_str);
+            if (freq != -1) {
+                fq_val = freq;
             } else {
-                std::string slice_str = py::cast<std::string>(slice_py);
-                int freq = trie.search(slice_str);
-                if (freq != -1) {
-                    fq_val = freq;
-                } else {
-                    fq_val = 0;
-                }
+                fq_val = 0;
             }
             if (fq_val == 0) fq_val = 1;
 
@@ -1075,13 +1244,9 @@ py::list _posseg_cut_DAG_cpp(
             // Check if buffer has frequency
             py::str buf_py = u32string_to_pystr(buffer);
             int buf_freq = 0;
-            if (user_freq.contains(buf_py)) {
-                buf_freq = py::cast<int>(user_freq[buf_py]);
-            } else {
-                std::string buf_str = py::cast<std::string>(buf_py);
-                buf_freq = trie.search(buf_str);
-                if (buf_freq == -1) buf_freq = 0;
-            }
+            std::string buf_str = py::cast<std::string>(buf_py);
+            buf_freq = trie.search(buf_str);
+            if (buf_freq == -1) buf_freq = 0;
 
             if (!buf_freq) {  // No frequency found
                 if (is_number(buffer)) {
@@ -1140,7 +1305,6 @@ py::list _posseg_cut_DAG_cpp(
 // C++ implementation of posseg __cut_DAG_NO_HMM
 py::list _posseg_cut_DAG_NO_HMM_cpp(
     DatTrie& trie,
-    py::dict user_freq,
     const std::u32string& sentence,
     py::dict word_tag_tab,
     double total
@@ -1165,15 +1329,10 @@ py::list _posseg_cut_DAG_NO_HMM_cpp(
             bool found = false;
             int freq = 0;
 
-            if (user_freq.contains(frag_py)) {
-                 found = true;
-                 freq = py::cast<int>(user_freq[frag_py]);
-            } else {
-                 std::string frag_str = py::cast<std::string>(frag_py);
-                 freq = trie.search(frag_str);
-                 if (freq != -1) {
-                     found = true;
-                 }
+            std::string frag_str = py::cast<std::string>(frag_py);
+            freq = trie.search(frag_str);
+            if (freq != -1) {
+                found = true;
             }
 
             if (!found) {
@@ -1203,16 +1362,12 @@ py::list _posseg_cut_DAG_NO_HMM_cpp(
             py::str slice_py = u32string_to_pystr(slice);
 
             long fq_val = 1;
-            if (user_freq.contains(slice_py)) {
-                fq_val = py::cast<long>(user_freq[slice_py]);
+            std::string slice_str = py::cast<std::string>(slice_py);
+            int freq = trie.search(slice_str);
+            if (freq != -1) {
+                fq_val = freq;
             } else {
-                std::string slice_str = py::cast<std::string>(slice_py);
-                int freq = trie.search(slice_str);
-                if (freq != -1) {
-                    fq_val = freq;
-                } else {
-                    fq_val = 0;
-                }
+                fq_val = 0;
             }
             if (fq_val == 0) fq_val = 1;
 
@@ -1276,45 +1431,118 @@ py::list _posseg_cut_DAG_NO_HMM_cpp(
 
 
 
+// C++ implementation for _load_word_tag_pybind
+void _load_word_tag_pybind(const std::string& filename, py::dict word_tag_tab_py) {
+    word_tag_tab_py.clear(); // Clear existing content before populating
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw py::value_error("Could not open dictionary file: " + filename);
+    }
+
+    std::string line;
+    bool first_line = true;
+    while (std::getline(file, line)) {
+        // Handle BOM on first line if present (Python should typically handle this, but for robustness)
+        if (first_line) {
+            first_line = false;
+            if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
+                line = line.substr(3);
+            }
+        }
+
+        // Trim whitespace
+        size_t first = line.find_first_not_of(" \t\r\n");
+        size_t last = line.find_last_not_of(" \t\r\n");
+        if (std::string::npos == first || std::string::npos == last) {
+            continue; // Empty or all-whitespace line
+        }
+        line = line.substr(first, (last - first + 1));
+
+        if (line.empty() || line[0] == '#') continue; // Skip empty lines and comments
+
+        std::string word_str;
+        std::string tag_str = "x"; // Default tag
+
+        std::istringstream iss(line);
+        std::vector<std::string> parts;
+        std::string part;
+        while (iss >> part) {
+            parts.push_back(part);
+        }
+
+        if (parts.empty()) continue;
+
+        word_str = parts[0];
+        if (parts.size() > 1) {
+            // Check if the second part is a number (frequency)
+            // If it's not a number, it's a tag
+            bool is_digit = !parts[1].empty() && std::all_of(parts[1].begin(), parts[1].end(), ::isdigit);
+            if (!is_digit) {
+                tag_str = parts[1];
+            }
+        }
+        if (parts.size() > 2) {
+            tag_str = parts[2];
+        }
+
+        word_tag_tab_py[py::str(word_str)] = py::str(tag_str);
+    }
+    file.close();
+}
+
+
 PYBIND11_MODULE(_jieba_fast_dat_functions_py3, m) {
     m.doc() = "pybind11 plugin for jieba_fast_dat C functions";
 
     py::class_<DatTrie>(m, "DatTrie")
         .def(py::init<>())
-        .def("build", &DatTrie::build, py::arg("word_freqs"))
+        .def("build", static_cast<double (DatTrie::*)(py::iterable)>(&DatTrie::build), py::arg("word_freqs_iterable"), "Builds the DatTrie from an iterable of (word, freq) pairs and returns the total frequency.")
+        .def("clear", &DatTrie::clear)
         .def("search", static_cast<int (DatTrie::*)(const std::string&)>(&DatTrie::search), py::arg("word"))
         .def("open", &_get_trie_pybind, py::arg("filename"), py::arg("offset") = 0)
-        .def("save", &DatTrie::save, py::arg("filename"));
+        .def("save", &DatTrie::save, py::arg("filename"))
+        .def("num_keys", &DatTrie::num_keys)
+        .def("extract_words", &DatTrie::extract_words, py::arg("words_with_freqs"))
+        .def("add_word", &DatTrie::add_word, py::arg("word"), py::arg("freq"), "Adds a word to the DatTrie with a given frequency.")
+        .def("del_word", &DatTrie::del_word, py::arg("word"), "Deletes a word from the DatTrie.")
+        .def("load_from_file_and_build", &DatTrie::load_from_file_and_build,
+             py::arg("filename"), py::arg("user_word_tag_tab_py"),
+             "Loads dictionary from file, builds DatTrie and generates prefixes, updates user_word_tag_tab, and returns total frequency in C++.");
 
     m.def("_viterbi", &_viterbi_pybind,
           py::arg("obs"), py::arg("_states_py"), py::arg("start_p"), py::arg("trans_p"), py::arg("emip_p"));
 
     m.def("_calc", &_calc_pybind,
-          py::arg("trie"), py::arg("sentence"), py::arg("DAG"), py::arg("route"), py::arg("total_obj"), py::arg("user_freq"));
+          py::arg("trie"), py::arg("sentence"), py::arg("DAG"), py::arg("route"), py::arg("total_obj"));
 
     m.def("load_hmm_model", &load_hmm_model,
-          py::arg("start_p"), py::arg("trans_p"), py::arg("emit_p"), py::arg("char_state_tab_p"));
+          py::arg("start_p_dict"), py::arg("trans_p_dict"), py::arg("emit_p_dict"), py::arg("char_state_tab_p_dict"));
 
     m.def("_posseg_viterbi_cpp", &_posseg_viterbi_cpp, py::arg("obs"));
 
     m.def("_get_DAG_and_calc", &_get_DAG_and_calc_pybind,
-          py::arg("trie"), py::arg("user_freq"), py::arg("sentence"), py::arg("route"), py::arg("total"));
+          py::arg("trie"), py::arg("sentence"), py::arg("route"), py::arg("total"));
 
     m.def("_get_DAG", &_get_DAG,
-          py::arg("trie"), py::arg("sentence"), py::arg("user_freq"));
+          py::arg("trie"), py::arg("sentence"));
 
     m.def("_get_freq", &_get_freq,
-          py::arg("trie"), py::arg("user_freq"), py::arg("word"));
+          py::arg("trie"), py::arg("word"));
 
     m.def("_posseg_cut_DAG_cpp", &_posseg_cut_DAG_cpp,
-          py::arg("trie"), py::arg("user_freq"), py::arg("sentence"),
+          py::arg("trie"), py::arg("sentence"),
           py::arg("word_tag_tab"), py::arg("total"));
 
     m.def("_posseg_cut_DAG_NO_HMM_cpp", &_posseg_cut_DAG_NO_HMM_cpp,
-          py::arg("trie"), py::arg("user_freq"), py::arg("sentence"),
+          py::arg("trie"), py::arg("sentence"),
           py::arg("word_tag_tab"), py::arg("total"));
 
     m.def("load_userdict_pybind", &load_userdict_pybind,
-          py::arg("trie"), py::arg("user_freq"), py::arg("user_word_tag_tab"),
-          py::arg("filename"), py::arg("add_force_split_func"));
+          py::arg("trie"), py::arg("dict_lines"),
+          py::arg("user_word_tag_tab"), py::arg("batch_add_force_split_func"));
+
+    m.def("_load_word_tag_pybind", &_load_word_tag_pybind,
+          py::arg("filename"), py::arg("word_tag_tab_py"),
+          "Loads word-tag pairs from a dictionary file into a Python dict in C++.");
 }

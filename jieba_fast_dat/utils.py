@@ -32,3 +32,13 @@ def _get_char_type(char_code: int) -> int:
     if 0 <= char_code < _MAX_CHAR_CODE:
         return _CHAR_TYPE_LOOKUP[char_code]
     return CHAR_TYPE_OTHER
+
+
+def _get_abs_path(path: str) -> str:
+    import os  # Import os here to ensure it's available
+
+    return (
+        os.path.normpath(path)
+        if os.path.isabs(path)
+        else os.path.normpath(os.path.join(os.getcwd(), path))
+    )

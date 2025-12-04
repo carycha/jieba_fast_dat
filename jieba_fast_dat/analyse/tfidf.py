@@ -8,12 +8,13 @@ from typing import Any
 import jieba_fast_dat
 import jieba_fast_dat.posseg
 
+# Local application imports
+from ..utils import _get_abs_path
+
 
 def _get_module_path(path: str) -> str:
     return os.path.normpath(os.path.join(os.getcwd(), os.path.dirname(__file__), path))
 
-
-_get_abs_path = jieba_fast_dat._get_abs_path
 
 DEFAULT_IDF = _get_module_path("idf.txt")
 

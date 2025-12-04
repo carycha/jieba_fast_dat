@@ -1,11 +1,12 @@
 from collections.abc import Iterator
-from typing import IO, BinaryIO
+from typing import IO
 
 __version__ = "0.53"
-import io
+
 import logging
 import marshal
 import os
+import pickle
 import re
 import sys
 import tempfile
@@ -18,7 +19,7 @@ import jieba_fast_dat._jieba_fast_dat_functions_py3 as _jieba_fast_dat_functions
 from jieba_fast_dat._jieba_fast_dat_functions_py3 import DatTrie
 
 from . import finalseg
-from .utils import get_module_res
+from .utils import _get_abs_path, get_module_res
 
 load_hmm_model = _jieba_fast_dat_functions.load_hmm_model
 _posseg_viterbi_cpp = _jieba_fast_dat_functions._posseg_viterbi_cpp
@@ -29,12 +30,128 @@ load_userdict_pybind = _jieba_fast_dat_functions.load_userdict_pybind
 _replace_file = os.rename
 
 
-def _get_abs_path(path: str) -> str:
-    return (
-        os.path.normpath(path)
-        if os.path.isabs(path)
-        else os.path.normpath(os.path.join(os.getcwd(), path))
+# 新增自定義字典快取專用的常量
+USER_DICT_CACHE_PREFIX = "jieba_fast_dat.user_dict.cache"
+TMP_DIR = Path(tempfile.gettempdir())  # 統一快取存放在系統的 /tmp/ 目錄下
+
+
+def _get_user_dict_cache_paths(user_dict_path: str) -> Path:
+    """
+    為自定義字典生成唯一的快取檔案路徑。
+    命名規範：/tmp/jieba_fast_dat.user_dict.cache.{md5_hash_of_path}.cache
+    """
+    user_dict_path_hash = md5(user_dict_path.encode("utf-8")).hexdigest()
+
+    base_cache_name = f"{USER_DICT_CACHE_PREFIX}.{user_dict_path_hash}"
+    cache_file = TMP_DIR / (base_cache_name + ".cache")
+    return cache_file
+
+
+def _load_user_dict_cache(
+    user_dict_path: str,
+) -> tuple[dict, float, dict[str, str]] | None:
+    """
+    嘗試從自定義字典快取載入元數據、總頻率和 user_word_tag_tab。
+    返回快取元數據、總頻率和 user_word_tag_tab (Dict, float, Dict[str, str]) 或 None。
+    """
+    cache_file = _get_user_dict_cache_paths(user_dict_path)
+    dat_cache_file = cache_file.with_suffix(".dat")
+
+    if not cache_file.exists() or not dat_cache_file.exists():
+        return None
+
+    try:
+        # 讀取原始字典檔案的 metadata
+        original_stat = os.stat(user_dict_path)
+        original_mtime = int(original_stat.st_mtime)
+        original_size = original_stat.st_size
+    except FileNotFoundError:
+        # 原始檔案不存在，快取肯定無效。清理快取。
+        cache_file.unlink(missing_ok=True)
+        dat_cache_file.unlink(missing_ok=True)
+        return None
+
+    try:
+        with open(cache_file, "rb") as cf:
+            cached_data = pickle.load(cf)
+            # Expecting (metadata, total_freq, user_word_tag_tab)
+            if not isinstance(cached_data, tuple) or len(cached_data) != 3:
+                raise ValueError("Invalid cache format.")
+            metadata, total_freq, user_word_tag_tab_from_cache = cached_data
+
+            if (
+                not isinstance(metadata, dict)
+                or "mtime" not in metadata
+                or "size" not in metadata
+            ):
+                raise ValueError("Invalid metadata in cache.")
+
+            cached_mtime = int(metadata["mtime"])
+            cached_size = metadata["size"]
+
+    except Exception as e:
+        default_logger.debug(
+            f"Failed to load user dict cache metadata from {cache_file}, "
+            f"rebuilding: {e}"
+        )
+        cache_file.unlink(missing_ok=True)
+        dat_cache_file.unlink(missing_ok=True)
+        return None
+
+    # 檢查快取是否過期或不一致
+    if cached_mtime != original_mtime or cached_size != original_size:
+        default_logger.debug(
+            f"User dict '{user_dict_path}' cache outdated (mtime or size mismatch). "
+            f"Original mtime: {original_mtime}, cached mtime: {cached_mtime}. "
+            f"Original size: {original_size}, cached size: {cached_size}. Rebuilding."
+        )
+        cache_file.unlink(missing_ok=True)
+        dat_cache_file.unlink(missing_ok=True)
+        return None
+
+    default_logger.debug(
+        f"User dict '{user_dict_path}' cache valid. Loading total_freq and DatTrie."
     )
+    return metadata, total_freq, user_word_tag_tab_from_cache
+
+
+def _save_user_dict_cache(
+    user_dict_path: str, total_freq: float, user_word_tag_tab: dict[str, str]
+):
+    """
+    保存自定義字典的快取資訊（元數據、總頻率和 user_word_tag_tab）。
+    DatTrie 結構將保存到單獨的 .dat 檔案。
+    """
+    cache_file = _get_user_dict_cache_paths(user_dict_path)
+    dat_cache_file = cache_file.with_suffix(".dat")
+
+    # 確保快取目錄存在
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    default_logger.debug(
+        f"Dumping user dict cache to {cache_file} and {dat_cache_file}"
+    )
+    try:
+        # 獲取原始字典檔案的 metadata
+        original_stat = os.stat(user_dict_path)
+        metadata = {"mtime": int(original_stat.st_mtime), "size": original_stat.st_size}
+
+        # 保存 metadata, total_freq, user_word_tag_tab 到 .cache 檔案
+        fd_meta, fpath_meta = tempfile.mkstemp(dir=str(TMP_DIR), suffix=".cache")
+        with os.fdopen(fd_meta, "wb") as temp_cache_file:
+            pickle.dump((metadata, total_freq, user_word_tag_tab), temp_cache_file)
+        _replace_file(fpath_meta, str(cache_file))  # 原子替換主快取檔案
+
+        default_logger.debug(f"User dict cache dumped to {cache_file} successfully.")
+    except Exception as e:
+        default_logger.exception(
+            f"Dump user dict cache file failed for {user_dict_path}: {e}"
+        )
+        # 如果保存失敗，清理可能部分寫入的快取檔案
+        cache_file.unlink(missing_ok=True)
+        dat_cache_file.unlink(
+            missing_ok=True
+        )  # Ensure .dat is also cleaned if something went wrong
 
 
 DEFAULT_DICT = None
@@ -77,6 +194,11 @@ def setLogLevel(log_level: int) -> None:
     default_logger.setLevel(log_level)
 
 
+def _batch_add_force_split(words: list[str]) -> None:
+    for word in words:
+        finalseg.add_force_split(word)
+
+
 class Tokenizer:
     def __init__(self, dictionary: str | None = DEFAULT_DICT) -> None:
         self.lock = threading.RLock()
@@ -87,7 +209,6 @@ class Tokenizer:
             self.dictionary = _get_abs_path(dictionary)
         self.dat = DatTrie()
         self.total = 0
-        self.user_freq: dict[str, int] = {}
         self.user_word_tag_tab: dict[str, str] = {}
         self.initialized = False
         self.tmp_dir: str | None = None
@@ -97,50 +218,7 @@ class Tokenizer:
         return f"<Tokenizer dictionary={self.dictionary!r}>"
 
     def get_freq(self, word: str) -> int:
-        return _get_freq(self.dat, self.user_freq, word)
-
-    def gen_dat_data(self, f: IO[bytes]) -> tuple[list[tuple[str, int]], float]:
-        lfreq: dict[str, int] = {}
-        ltotal = 0.0
-        f_name = f.name
-        for line in f:
-            try:
-                line = line.strip().decode("utf-8")
-                # Default values
-                word = ""
-                freq = 1000
-                tag = "x"
-
-                parts = line.split(" ", 2)  # Split into max 3 parts
-
-                word = parts[0]
-
-                if len(parts) > 1:
-                    # Check if second part is a number
-                    if parts[1].isdigit():
-                        freq = int(parts[1])
-                    else:
-                        tag = parts[1]
-
-                if len(parts) == 3:
-                    tag = parts[2]
-
-                lfreq[word] = freq
-                ltotal += float(freq)
-                if tag:  # Store tag if present
-                    self.user_word_tag_tab[word] = tag
-
-                for ch in range(len(word)):
-                    wfrag = word[: ch + 1]
-                    if wfrag not in lfreq:
-                        lfreq[wfrag] = 0
-            except ValueError as e:
-                raise ValueError(
-                    f"invalid dictionary entry in {f_name} at line: {line}"
-                ) from e
-        f.close()
-        word_freqs = list(lfreq.items())
-        return word_freqs, ltotal
+        return _get_freq(self.dat, word)
 
     def initialize(
         self, dictionary: str | None = None, force_rebuild: bool = False
@@ -156,7 +234,6 @@ class Tokenizer:
                     self.dictionary = abs_path
                     self.initialized = False
                     # by gen_dat_data
-                    self.user_freq = {}
                     # self.user_word_tag_tab = {} # Do not clear here
             else:
                 abs_path = current_dictionary_path
@@ -213,13 +290,12 @@ class Tokenizer:
                     # Clear user_freq when loading from cache,
                     # user_word_tag_tab will be repopulated
                     # by gen_dat_data
-                    self.user_freq = {}
                     # self.user_word_tag_tab = {} # Do not clear here
                     # Repopulate user_word_tag_tab from main dictionary
                     # after loading from cache
                     # This ensures that main dictionary word tags are available
                     # even when loading from cache
-                    self.gen_dat_data(self.get_dict_file())
+
                 except Exception:
                     load_from_cache_fail = True
 
@@ -227,19 +303,10 @@ class Tokenizer:
                 wlock = DICT_WRITING.get(abs_path, threading.RLock())
                 DICT_WRITING[abs_path] = wlock
                 with wlock:
-                    # Call gen_dat_data to populate self.user_freq and
-                    # self.user_word_tag_tab from the main dictionary
-                    word_freqs_list, ltotal = self.gen_dat_data(self.get_dict_file())
-
-                    # Update total with combined frequencies
-                    self.total = ltotal + sum(self.user_freq.values())
-
-                    # Convert back to list for DatTrie.build
-                    final_word_freqs = (
-                        word_freqs_list  # DatTrie only built with main dict
+                    self.total = self.dat.load_from_file_and_build(
+                        self.get_dict_file().name, self.user_word_tag_tab
                     )
 
-                    self.dat.build(final_word_freqs)
                     default_logger.debug(f"Dumping model to file cache {cache_file}")
                     try:
                         # save total
@@ -278,12 +345,11 @@ class Tokenizer:
             DAG,
             route,
             float(self.total),
-            self.user_freq,
         )
 
     def get_DAG(self, sentence: str) -> dict[int, list[int]]:
         self.check_initialized()
-        return _get_DAG(self.dat, sentence, self.user_freq)
+        return _get_DAG(self.dat, sentence)
 
     def __cut_all(self, sentence: str) -> Iterator[str]:
         dag = self.get_DAG(sentence)
@@ -343,7 +409,7 @@ class Tokenizer:
         route: list[int] = []
         self.check_initialized()
         _jieba_fast_dat_functions._get_DAG_and_calc(
-            self.dat, self.user_freq, sentence, route, float(self.total)
+            self.dat, sentence, route, float(self.total)
         )
         x = 0
         buf = ""
@@ -479,14 +545,12 @@ class Tokenizer:
             # Ensure self.dictionary is a string path for open()
             return open(str(self.dictionary), "rb")
 
-    def load_userdict(self, f: str | Path | BinaryIO) -> None:
+    def load_userdict(self, f: str | Path) -> None:
         """
         Load personalized dict to improve detect rate.
 
         Parameter:
-            - f : A plain text file contains words and their ocurrences.
-                  Can be a file-like object, or the path of the dictionary file,
-                  whose encoding must be utf-8.
+            - f : The path of the dictionary file, whose encoding must be utf-8.
 
         Structure of dict file:
         word1 freq1 word_type1
@@ -496,84 +560,84 @@ class Tokenizer:
         """
         self.check_initialized()
 
-        if isinstance(f, (str, Path)):
-            # Use C++ optimized loader for file paths
+        if not isinstance(f, (str, Path)):
+            raise TypeError(
+                "File-like objects (BinaryIO) are not supported for load_userdict; "
+                "please provide a file path."
+            )
+
+        user_dict_path = str(f)
+        cache_file_path = _get_user_dict_cache_paths(user_dict_path)
+        dat_cache_file_path = cache_file_path.with_suffix(".dat")
+
+        # Attempt to load from binary cache
+        loaded_cache = _load_user_dict_cache(user_dict_path)
+
+        if loaded_cache:
+            default_logger.debug(
+                f"User dict '{user_dict_path}' cache valid. Loading DatTrie from "
+                f"{dat_cache_file_path}."
+            )
             try:
-                load_userdict_pybind(
-                    self.dat,
-                    self.user_freq,
-                    self.user_word_tag_tab,
-                    str(f),
-                    finalseg.add_force_split,
+                # Load total_freq and user_word_tag_tab from the cache metadata file
+                _, total_freq_from_cache, user_word_tag_tab_from_cache = loaded_cache
+                self.total = total_freq_from_cache
+                self.user_word_tag_tab = user_word_tag_tab_from_cache  # Assign directly
+
+                # Load DatTrie structure from the .dat file
+                self.dat.open(str(dat_cache_file_path))
+
+                default_logger.debug(
+                    f"User dict '{user_dict_path}' loaded from binary cache."
                 )
                 return
+
             except Exception as e:
-                default_logger.warning(
-                    f"C++ load_userdict failed, falling back to Python: {e}"
+                default_logger.exception(
+                    f"Failed to load user dict from binary cache for "
+                    f"'{user_dict_path}', rebuilding: {e}"
                 )
-                # Fallback to Python implementation below
+                # Fallback to loading from original file if cache failed
+                cache_file_path.unlink(missing_ok=True)
+                dat_cache_file_path.unlink(missing_ok=True)
 
-        f_to_process: BinaryIO
-        f_text_stream: IO[str]
-        should_close_binary = False
+        # If cache invalid/not found/failed, load from original text file
+        default_logger.debug(
+            f"User dict '{user_dict_path}' cache invalid/not found; loading from file."
+        )
 
-        if isinstance(f, (str, Path)):
-            f_to_process = open(f, "rb")
-            should_close_binary = True
-            f_text_stream = io.TextIOWrapper(
-                f_to_process, encoding="utf-8-sig", errors="ignore"
-            )
-        else:  # f is already BinaryIO
-            f_to_process = f
-            # Wrap existing BinaryIO in TextIOWrapper
-            # We assume the passed BinaryIO is still readable and seekable if needed.
-            # 'errors=ignore' mimics original UnicodeDecodeError handling behavior.
-            # from the try-except block, although a ValueError would have been raised.
-            f_text_stream = io.TextIOWrapper(
-                f_to_process, encoding="utf-8-sig", errors="ignore"
-            )
-
+        content_from_original_file = None
+        new_total_freq = 0.0
         try:
-            for _lineno, line in enumerate(f_text_stream):
-                line = line.strip()  # Removed .lstrip("\ufeff")
-                if not line:
-                    continue
+            with open(user_dict_path, encoding="utf-8") as original_f:
+                content_from_original_file = (
+                    original_f.read()
+                )  # Read all content as a single string
 
-                # Default values
-                word = ""
-                freq = 1000
-                tag = "x"
+            # load_userdict_pybind will rebuild self.dat and populate user_word_tag_tab
+            new_total_freq = load_userdict_pybind(
+                self.dat,
+                content_from_original_file.splitlines(),  # Directly pass list of lines
+                self.user_word_tag_tab,  # This will be populated by C++
+                _batch_add_force_split,  # Pass the new batch function
+            )
+            self.total = new_total_freq
 
-                parts = line.split(" ", 2)  # Split into max 3 parts
+            # Save new binary cache
+            _save_user_dict_cache(
+                user_dict_path, new_total_freq, self.user_word_tag_tab
+            )  # Saves metadata, total_freq, and user_word_tag_tab
+            self.dat.save(str(dat_cache_file_path))  # Saves the DatTrie structure
 
-                word = parts[0]
-
-                if len(parts) > 1:
-                    # Check if second part is a number
-                    if parts[1].isdigit():
-                        freq = int(parts[1])
-                    else:
-                        tag = parts[1]
-
-                if len(parts) == 3:
-                    tag = parts[2]
-
-                # Directly update user_freq and user_word_tag_tab
-                self.user_freq[word] = freq
-                if tag:
-                    self.user_word_tag_tab[word] = tag
-
-                # Add prefixes
-                for ch in range(len(word)):
-                    wfrag = word[: ch + 1]
-                    if wfrag not in self.user_freq:
-                        self.user_freq[wfrag] = 0
-
-                if freq == 0:
-                    finalseg.add_force_split(word)
-        finally:
-            if should_close_binary:
-                f_to_process.close()
+            default_logger.debug(
+                f"User dict '{user_dict_path}' loaded from file, new cache saved."
+            )
+            return
+        except Exception as e:
+            default_logger.exception(
+                f"C++ load_userdict failed for '{user_dict_path}': {e}"
+            )
+            raise
 
     def add_word(
         self, word: str, freq: int | None = None, tag: str | None = None
@@ -585,24 +649,45 @@ class Tokenizer:
         that ensures the word can be cut out.
         """
         self.check_initialized()
-        word = word
-        freq = int(freq) if freq is not None else self.suggest_freq(word, False)
-        self.user_freq[word] = freq
-        # self.total += float(freq) # total is recalculated in initialize
-        if tag:
-            self.user_word_tag_tab[word] = tag
-        for ch in range(len(word)):
-            wfrag = word[: ch + 1]
-            if wfrag not in self.user_freq:
-                self.user_freq[wfrag] = 0
-        if freq == 0:
-            finalseg.add_force_split(word)
+
+        # Determine frequency if not provided
+        # Use a placeholder value if freq is None, as suggest_freq needs a word.
+        # The C++ side uses 3 as default if not provided, aligning with jieba.
+        freq = int(freq) if freq is not None else 1000  # Use default 3
+
+        # Create a temporary file with the word, freq, and tag
+        # Then call load_userdict with this temporary file.
+        # This triggers a full DatTrie rebuild, consistent with load_userdict.
+        with tempfile.NamedTemporaryFile(
+            mode="w+", encoding="utf-8", delete=False
+        ) as temp_f:
+            line_parts = [word, str(freq)]
+            if tag:
+                line_parts.append(tag)
+            temp_f.write(" ".join(line_parts) + "\n")
+
+        temp_file_path = Path(temp_f.name)
+        try:
+            self.load_userdict(temp_file_path)
+        finally:
+            os.unlink(temp_file_path)  # Clean up the temporary file
 
     def del_word(self, word: str) -> None:
         """
         Convenient function for deleting a word.
         """
-        self.add_word(word, 0)
+        # Create a temporary file with the word and freq 0
+        # Then call load_userdict with this temporary file.
+        with tempfile.NamedTemporaryFile(
+            mode="w+", encoding="utf-8", delete=False
+        ) as temp_f:
+            temp_f.write(f"{word} 0\n")
+
+        temp_file_path = Path(temp_f.name)
+        try:
+            self.load_userdict(temp_file_path)
+        finally:
+            os.unlink(temp_file_path)  # Clean up the temporary file
 
     def suggest_freq(self, segment: str | tuple[str, ...], tune: bool = False) -> int:
         """
@@ -681,7 +766,6 @@ class Tokenizer:
             if self.dictionary != abs_path:
                 self.dictionary = abs_path
                 self.initialized = False
-                self.user_freq = {}  # Clear user_freq
                 self.user_word_tag_tab = {}  # Clear user_word_tag_tab
                 # Force rebuild DatTrie when dictionary changes
                 self.initialize(force_rebuild=True)
