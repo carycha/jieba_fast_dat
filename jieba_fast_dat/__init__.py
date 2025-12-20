@@ -1,10 +1,9 @@
 from collections.abc import Iterator
 from typing import IO
 
-__version__ = "0.53"
+__version__ = "0.57"
 
 import logging
-import marshal
 import os
 import pickle
 import re
@@ -26,6 +25,9 @@ _posseg_viterbi_cpp = _jieba_fast_dat_functions._posseg_viterbi_cpp
 _get_DAG = _jieba_fast_dat_functions._get_DAG
 _get_freq = _jieba_fast_dat_functions._get_freq
 load_userdict_pybind = _jieba_fast_dat_functions.load_userdict_pybind
+_cut_internal_cpp = _jieba_fast_dat_functions._cut_internal_cpp
+_cut_all_internal_cpp = _jieba_fast_dat_functions._cut_all_internal_cpp
+_cut_for_search_internal_cpp = _jieba_fast_dat_functions._cut_for_search_internal_cpp
 
 _replace_file = os.rename
 
@@ -41,43 +43,42 @@ def _get_user_dict_cache_paths(user_dict_path: str) -> Path:
     命名規範：/tmp/jieba_fast_dat.user_dict.cache.{md5_hash_of_path}.cache
     """
     user_dict_path_hash = md5(user_dict_path.encode("utf-8")).hexdigest()
-
-    base_cache_name = f"{USER_DICT_CACHE_PREFIX}.{user_dict_path_hash}"
-    cache_file = TMP_DIR / (base_cache_name + ".cache")
+    cache_file = TMP_DIR / f"{USER_DICT_CACHE_PREFIX}.{user_dict_path_hash}.cache"
     return cache_file
 
 
 def _load_user_dict_cache(
     user_dict_path: str,
-) -> tuple[dict, float, dict[str, str]] | None:
+) -> tuple[dict, float, dict[str, str], bytes] | None:
     """
-    嘗試從自定義字典快取載入元數據、總頻率和 user_word_tag_tab。
-    返回快取元數據、總頻率和 user_word_tag_tab (Dict, float, Dict[str, str]) 或 None。
+    嘗試從自定義字典快取載入元數據、總頻率、user_word_tag_tab 和 DatTrie 字節。
+    返回 (metadata, total_freq, user_word_tag_tab, dat_bytes) 或 None。
     """
     cache_file = _get_user_dict_cache_paths(user_dict_path)
-    dat_cache_file = cache_file.with_suffix(".dat")
 
-    if not cache_file.exists() or not dat_cache_file.exists():
+    if not cache_file.exists():
         return None
 
     try:
-        # 讀取原始字典檔案的 metadata
         original_stat = os.stat(user_dict_path)
         original_mtime = int(original_stat.st_mtime)
         original_size = original_stat.st_size
     except FileNotFoundError:
-        # 原始檔案不存在，快取肯定無效。清理快取。
         cache_file.unlink(missing_ok=True)
-        dat_cache_file.unlink(missing_ok=True)
         return None
 
     try:
         with open(cache_file, "rb") as cf:
-            cached_data = pickle.load(cf)
-            # Expecting (metadata, total_freq, user_word_tag_tab)
-            if not isinstance(cached_data, tuple) or len(cached_data) != 3:
+            cached_data = pickle.loads(cf.read())
+            # Expecting (metadata, total_freq, user_word_tag_tab, dat_bytes)
+            if not isinstance(cached_data, tuple) or len(cached_data) != 4:
                 raise ValueError("Invalid cache format.")
-            metadata, total_freq, user_word_tag_tab_from_cache = cached_data
+            (
+                metadata,
+                total_freq,
+                user_word_tag_tab_from_cache,
+                dat_bytes,
+            ) = cached_data
 
             if (
                 not isinstance(metadata, dict)
@@ -91,67 +92,54 @@ def _load_user_dict_cache(
 
     except Exception as e:
         default_logger.debug(
-            f"Failed to load user dict cache metadata from {cache_file}, "
-            f"rebuilding: {e}"
+            f"Failed to load user dict cache from {cache_file}, rebuilding: {e}"
         )
         cache_file.unlink(missing_ok=True)
-        dat_cache_file.unlink(missing_ok=True)
         return None
 
-    # 檢查快取是否過期或不一致
     if cached_mtime != original_mtime or cached_size != original_size:
         default_logger.debug(
-            f"User dict '{user_dict_path}' cache outdated (mtime or size mismatch). "
-            f"Original mtime: {original_mtime}, cached mtime: {cached_mtime}. "
-            f"Original size: {original_size}, cached size: {cached_size}. Rebuilding."
+            f"User dict '{user_dict_path}' cache outdated. Rebuilding."
         )
         cache_file.unlink(missing_ok=True)
-        dat_cache_file.unlink(missing_ok=True)
         return None
 
     default_logger.debug(
-        f"User dict '{user_dict_path}' cache valid. Loading total_freq and DatTrie."
+        f"User dict '{user_dict_path}' cache valid. Loading from cache."
     )
-    return metadata, total_freq, user_word_tag_tab_from_cache
+    return metadata, total_freq, user_word_tag_tab_from_cache, dat_bytes
 
 
 def _save_user_dict_cache(
-    user_dict_path: str, total_freq: float, user_word_tag_tab: dict[str, str]
+    user_dict_path: str,
+    total_freq: float,
+    user_word_tag_tab: dict[str, str],
+    dat_bytes: bytes,
 ):
     """
-    保存自定義字典的快取資訊（元數據、總頻率和 user_word_tag_tab）。
-    DatTrie 結構將保存到單獨的 .dat 檔案。
+    保存自定義字典的快取資訊（元數據、總頻率、user_word_tag_tab 和 DatTrie 字節）。
     """
     cache_file = _get_user_dict_cache_paths(user_dict_path)
-    dat_cache_file = cache_file.with_suffix(".dat")
-
-    # 確保快取目錄存在
     TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    default_logger.debug(
-        f"Dumping user dict cache to {cache_file} and {dat_cache_file}"
-    )
+    default_logger.debug(f"Dumping user dict cache to {cache_file}")
     try:
-        # 獲取原始字典檔案的 metadata
         original_stat = os.stat(user_dict_path)
         metadata = {"mtime": int(original_stat.st_mtime), "size": original_stat.st_size}
 
-        # 保存 metadata, total_freq, user_word_tag_tab 到 .cache 檔案
-        fd_meta, fpath_meta = tempfile.mkstemp(dir=str(TMP_DIR), suffix=".cache")
-        with os.fdopen(fd_meta, "wb") as temp_cache_file:
-            pickle.dump((metadata, total_freq, user_word_tag_tab), temp_cache_file)
-        _replace_file(fpath_meta, str(cache_file))  # 原子替換主快取檔案
+        with open(cache_file, "wb") as temp_cache_file:
+            pickle.dump(
+                (metadata, total_freq, user_word_tag_tab, dat_bytes),
+                temp_cache_file,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
 
         default_logger.debug(f"User dict cache dumped to {cache_file} successfully.")
     except Exception as e:
         default_logger.exception(
             f"Dump user dict cache file failed for {user_dict_path}: {e}"
         )
-        # 如果保存失敗，清理可能部分寫入的快取檔案
         cache_file.unlink(missing_ok=True)
-        dat_cache_file.unlink(
-            missing_ok=True
-        )  # Ensure .dat is also cleaned if something went wrong
 
 
 DEFAULT_DICT = None
@@ -257,35 +245,28 @@ class Tokenizer:
                 cache_name = f"jieba_fast_dat.u{hexdigest}.cache"
 
             cache_file = os.path.join(self.tmp_dir or tempfile.gettempdir(), cache_name)
-            dat_cache_file = cache_file + ".dat"
-            tmpdir = os.path.dirname(cache_file)
 
             load_from_cache_fail = True
             if (
                 not force_rebuild
                 and os.path.isfile(cache_file)
-                and os.path.isfile(dat_cache_file)
                 and (
                     abs_path == DEFAULT_DICT
                     or (
-                        (
-                            abs_path is not None
-                            and os.path.getmtime(cache_file)
-                            > os.path.getmtime(abs_path)
-                        )
-                        and (
-                            abs_path is not None
-                            and os.path.getmtime(dat_cache_file)
-                            > os.path.getmtime(abs_path)
-                        )
+                        abs_path is not None
+                        and os.path.getmtime(cache_file) > os.path.getmtime(abs_path)
                     )
                 )
             ):
                 default_logger.debug(f"Loading model from cache {cache_file}")
                 try:
                     with open(cache_file, "rb") as cf:
-                        self.total = float(marshal.load(cf))
-                    self.dat.open(dat_cache_file)
+                        self.total, self.user_word_tag_tab, dat_bytes = pickle.loads(
+                            cf.read()
+                        )
+                    self.dat.load_from_bytes(dat_bytes)
+                    # Sync word_tag_tab to C++
+                    self.dat.update_word_tag_tab(self.user_word_tag_tab)
                     load_from_cache_fail = False
                     # Clear user_freq when loading from cache,
                     # user_word_tag_tab will be repopulated
@@ -303,19 +284,28 @@ class Tokenizer:
                 wlock = DICT_WRITING.get(abs_path, threading.RLock())
                 DICT_WRITING[abs_path] = wlock
                 with wlock:
-                    self.total = self.dat.load_from_file_and_build(
-                        self.get_dict_file().name, self.user_word_tag_tab
+                    default_logger.debug("Parsing dictionary file (C++ based)...")
+                    # Call the C++ function to load the main dictionary
+                    self.total = (
+                        _jieba_fast_dat_functions.load_main_dict_from_path_pybind(
+                            self.dat,
+                            self.get_dict_file().name,
+                            self.user_word_tag_tab,  # This will be populated by C++
+                        )
                     )
+
+                    # Get the DatTrie's binary data
+                    dat_bytes = self.dat.save_to_bytes()
 
                     default_logger.debug(f"Dumping model to file cache {cache_file}")
                     try:
-                        # save total
-                        fd, fpath = tempfile.mkstemp(dir=tmpdir)
-                        with os.fdopen(fd, "wb") as temp_cache_file:
-                            marshal.dump(self.total, temp_cache_file)
-                        _replace_file(fpath, cache_file)
-                        # save dat
-                        self.dat.save(dat_cache_file)
+                        # Save total, user_word_tag_tab, and dat_bytes to .cache file
+                        with open(cache_file, "wb") as temp_cache_file:
+                            pickle.dump(
+                                (self.total, self.user_word_tag_tab, dat_bytes),
+                                temp_cache_file,
+                                protocol=pickle.HIGHEST_PROTOCOL,
+                            )
                     except Exception:
                         default_logger.exception("Dump cache file failed.")
 
@@ -380,77 +370,20 @@ class Tokenizer:
             yield eng_buf
 
     def __cut_DAG_NO_HMM(self, sentence: str) -> Iterator[str]:
-        DAG = self.get_DAG(sentence)
-        route: dict[int, tuple[float, int]] = {}
-        self.calc(sentence, DAG, route)
-        x = 0
-        N = len(sentence)
-        buf = ""
-        while x < N:
-            y = route[x][1] + 1
-            l_word = sentence[x:y]
-            if len(l_word) == 1 and (
-                "a" <= l_word <= "z" or "A" <= l_word <= "Z" or "0" <= l_word <= "9"
-            ):  # If it's a single English/number char
-                buf += l_word
-                x = y
-            else:  # If it's a multi-character word or non-English/number single char
-                if buf:  # Process accumulated single English/number chars
-                    yield buf
-                    buf = ""
-                yield l_word  # Yield the word
-                x = y
-        if (
-            buf
-        ):  # Process any remaining accumulated single English/number chars at the end
-            yield buf
+        self.check_initialized()
+        words = _jieba_fast_dat_functions._cut_DAG_NO_HMM_cpp(
+            self.dat, sentence, float(self.total)
+        )
+        yield from words
 
     def __cut_DAG(self, sentence: str) -> Iterator[str]:
-        route: list[int] = []
         self.check_initialized()
-        _jieba_fast_dat_functions._get_DAG_and_calc(
-            self.dat, sentence, route, float(self.total)
+        if not finalseg._initialized:
+            finalseg.load_model()
+        words = _jieba_fast_dat_functions._cut_DAG_cpp(
+            self.dat, sentence, float(self.total)
         )
-        x = 0
-        buf = ""
-        N = len(sentence)
-
-        # Localize lookups
-        re_eng_num_match = re_eng_num.match
-        finalseg_cut = finalseg.cut
-        get_freq = self.get_freq
-
-        while x < N:
-            y = route[x] + 1
-            l_word = sentence[x:y]
-            if y - x == 1:  # If it's a single character
-                buf += l_word
-            else:  # If it's a multi-character word
-                if buf:  # Process accumulated single characters
-                    if len(buf) == 1:
-                        yield buf
-                    else:
-                        if not get_freq(buf):  # If buf is not a recognized word
-                            if re_eng_num_match(buf):
-                                yield buf
-                            else:
-                                yield from finalseg_cut(buf)
-                        else:  # If buf is a recognized word
-                            yield buf  # Yield the recognized word as a whole
-                    buf = ""
-                yield l_word  # Yield the multi-character word
-            x = y
-
-        if buf:  # Process any remaining accumulated single characters at the end
-            if len(buf) == 1:
-                yield buf
-            elif not self.get_freq(buf):
-                if re_eng_num.match(buf):
-                    yield buf
-                else:
-                    yield from finalseg.cut(buf)
-            else:
-                yield buf
+        yield from words
 
     def cut(
         self,
@@ -468,51 +401,15 @@ class Tokenizer:
             - cut_all: Model type. True for full pattern, False for accurate pattern.
             - HMM: Whether to use the Hidden Markov Model.
         """
-        sentence = strdecode(sentence)
-
-        re_han = re_han_default
-        re_skip = re_skip_default
-
-        if cut_all:
-            cut_block = self.__cut_all
-        elif HMM:
-            cut_block = self.__cut_DAG
-        else:
-            cut_block = self.__cut_DAG_NO_HMM
-
-        blocks = re_han.split(sentence)
-        for blk_idx, blk in enumerate(blocks):
-            if not blk:
-                continue
-            if blk_idx % 2 == 1:  # Matched block
-                yield from cut_block(blk)
-            else:
-                tmp = re_skip.split(blk)
-                for x_idx, x in enumerate(tmp):
-                    if x_idx % 2 == 1:
-                        yield x
-                    elif not cut_all:
-                        yield from x
-                    else:
-                        yield x
+        return iter(
+            self.lcut(sentence, cut_all=cut_all, HMM=HMM, use_paddle=use_paddle)
+        )
 
     def cut_for_search(self, sentence: str, HMM: bool = True) -> Iterator[str]:
         """
         Finer segmentation for search engines.
         """
-        words = self.cut(sentence, HMM=HMM)
-        for w in words:
-            if len(w) > 2:
-                for i in range(len(w) - 1):
-                    gram2 = w[i : i + 2]
-                    if self.get_freq(gram2):
-                        yield gram2
-            if len(w) > 3:
-                for i in range(len(w) - 2):
-                    gram3 = w[i : i + 3]
-                    if self.get_freq(gram3):
-                        yield gram3
-            yield w
+        return iter(self.lcut_for_search(sentence, HMM=HMM))
 
     def lcut(
         self,
@@ -521,10 +418,19 @@ class Tokenizer:
         HMM: bool = True,
         use_paddle: bool = False,
     ) -> list[str]:
-        return list(self.cut(sentence, cut_all=cut_all, HMM=HMM, use_paddle=use_paddle))
+        sentence = strdecode(sentence)
+        if cut_all:
+            return _cut_all_internal_cpp(self.dat, sentence)
+        else:
+            if HMM and not finalseg._initialized:
+                finalseg.load_model()
+            return _cut_internal_cpp(self.dat, sentence, float(self.total), HMM)
 
     def lcut_for_search(self, sentence: str, HMM: bool = True) -> list[str]:
-        return list(self.cut_for_search(sentence, HMM=HMM))
+        sentence = strdecode(sentence)
+        if HMM and not finalseg._initialized:
+            finalseg.load_model()
+        return _cut_for_search_internal_cpp(self.dat, sentence, float(self.total), HMM)
 
     _lcut = lcut
     _lcut_for_search = lcut_for_search
@@ -568,24 +474,27 @@ class Tokenizer:
 
         user_dict_path = str(f)
         cache_file_path = _get_user_dict_cache_paths(user_dict_path)
-        dat_cache_file_path = cache_file_path.with_suffix(".dat")
 
         # Attempt to load from binary cache
         loaded_cache = _load_user_dict_cache(user_dict_path)
 
         if loaded_cache:
             default_logger.debug(
-                f"User dict '{user_dict_path}' cache valid. Loading DatTrie from "
-                f"{dat_cache_file_path}."
+                f"User dict '{user_dict_path}' cache valid. Loading from cache."
             )
             try:
-                # Load total_freq and user_word_tag_tab from the cache metadata file
-                _, total_freq_from_cache, user_word_tag_tab_from_cache = loaded_cache
+                # Unpack all four items from the cache
+                (
+                    _,
+                    total_freq_from_cache,
+                    user_word_tag_tab_from_cache,
+                    dat_bytes,
+                ) = loaded_cache
                 self.total = total_freq_from_cache
-                self.user_word_tag_tab = user_word_tag_tab_from_cache  # Assign directly
+                self.user_word_tag_tab = user_word_tag_tab_from_cache
 
-                # Load DatTrie structure from the .dat file
-                self.dat.open(str(dat_cache_file_path))
+                # Load DatTrie structure from bytes
+                self.dat.load_from_bytes(dat_bytes)
 
                 default_logger.debug(
                     f"User dict '{user_dict_path}' loaded from binary cache."
@@ -599,35 +508,29 @@ class Tokenizer:
                 )
                 # Fallback to loading from original file if cache failed
                 cache_file_path.unlink(missing_ok=True)
-                dat_cache_file_path.unlink(missing_ok=True)
 
         # If cache invalid/not found/failed, load from original text file
         default_logger.debug(
             f"User dict '{user_dict_path}' cache invalid/not found; loading from file."
         )
 
-        content_from_original_file = None
-        new_total_freq = 0.0
         try:
-            with open(user_dict_path, encoding="utf-8") as original_f:
-                content_from_original_file = (
-                    original_f.read()
-                )  # Read all content as a single string
-
             # load_userdict_pybind will rebuild self.dat and populate user_word_tag_tab
             new_total_freq = load_userdict_pybind(
                 self.dat,
-                content_from_original_file.splitlines(),  # Directly pass list of lines
+                user_dict_path,  # Directly pass the file path
                 self.user_word_tag_tab,  # This will be populated by C++
                 _batch_add_force_split,  # Pass the new batch function
             )
             self.total = new_total_freq
 
+            # Get the trie data as bytes
+            dat_bytes = self.dat.save_to_bytes()
+
             # Save new binary cache
             _save_user_dict_cache(
-                user_dict_path, new_total_freq, self.user_word_tag_tab
-            )  # Saves metadata, total_freq, and user_word_tag_tab
-            self.dat.save(str(dat_cache_file_path))  # Saves the DatTrie structure
+                user_dict_path, new_total_freq, self.user_word_tag_tab, dat_bytes
+            )
 
             default_logger.debug(
                 f"User dict '{user_dict_path}' loaded from file, new cache saved."
@@ -649,45 +552,24 @@ class Tokenizer:
         that ensures the word can be cut out.
         """
         self.check_initialized()
-
-        # Determine frequency if not provided
-        # Use a placeholder value if freq is None, as suggest_freq needs a word.
-        # The C++ side uses 3 as default if not provided, aligning with jieba.
-        freq = int(freq) if freq is not None else 1000  # Use default 3
-
-        # Create a temporary file with the word, freq, and tag
-        # Then call load_userdict with this temporary file.
-        # This triggers a full DatTrie rebuild, consistent with load_userdict.
-        with tempfile.NamedTemporaryFile(
-            mode="w+", encoding="utf-8", delete=False
-        ) as temp_f:
-            line_parts = [word, str(freq)]
-            if tag:
-                line_parts.append(tag)
-            temp_f.write(" ".join(line_parts) + "\n")
-
-        temp_file_path = Path(temp_f.name)
-        try:
-            self.load_userdict(temp_file_path)
-        finally:
-            os.unlink(temp_file_path)  # Clean up the temporary file
+        word = strdecode(word)
+        if freq is None:
+            freq = self.suggest_freq(word)
+        self.dat.add_word(word, freq, tag if tag else "")
+        self.user_word_tag_tab[word] = tag if tag else ""
+        self.total += freq
 
     def del_word(self, word: str) -> None:
         """
         Convenient function for deleting a word.
         """
-        # Create a temporary file with the word and freq 0
-        # Then call load_userdict with this temporary file.
-        with tempfile.NamedTemporaryFile(
-            mode="w+", encoding="utf-8", delete=False
-        ) as temp_f:
-            temp_f.write(f"{word} 0\n")
-
-        temp_file_path = Path(temp_f.name)
-        try:
-            self.load_userdict(temp_file_path)
-        finally:
-            os.unlink(temp_file_path)  # Clean up the temporary file
+        self.check_initialized()
+        word = strdecode(word)
+        old_freq = self.get_freq(word)
+        self.dat.add_word(word, 0, "")
+        if word in self.user_word_tag_tab:
+            del self.user_word_tag_tab[word]
+        self.total -= old_freq
 
     def suggest_freq(self, segment: str | tuple[str, ...], tune: bool = False) -> int:
         """

@@ -166,7 +166,7 @@ def test_load_userdict_file_not_found(
     """
     non_existent_file = "path/to/a/file/that/does/not/exist.txt"
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(RuntimeError):
         fast_tokenizer.load_userdict(non_existent_file)
 
     with pytest.raises(FileNotFoundError):

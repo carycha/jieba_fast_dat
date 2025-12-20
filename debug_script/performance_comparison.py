@@ -241,12 +241,14 @@ def _run_library_tests(
         print("Measuring X. HMM Model Load...")
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(timeout_seconds)
-        hmm_load_time, _lib_posseg_module = measure_time(
-            importlib.import_module, 1, f"{lib_name}.posseg"
-        )
+        # First, import the module to make load_model available
+        _lib_posseg_module = importlib.import_module(f"{lib_name}.posseg")
+        # Then, measure the actual load_model function
+        hmm_load_time, _ = measure_time(_lib_posseg_module.load_model, 1)
         lib_posseg_module = _lib_posseg_module  # Assign the result
         signal.alarm(0)  # Disable the alarm
         lib_results["HMM_model_load_time"] = hmm_load_time
+
     except TimeoutException:
         signal.alarm(0)
         lib_results["HMM_model_load_time"] = float("inf")

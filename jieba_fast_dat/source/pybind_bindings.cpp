@@ -47,13 +47,37 @@ namespace HMM {
         return it->second * 4 + state_map.at(state);
     }
 
-    // HMM parameters (optimized with vectors)
+    // HMM parameters (optimized with flat vectors)
     std::vector<double> start_P;
-    std::vector<std::vector<double>> trans_P;
+    std::vector<double> trans_P_flat; // Flattened trans_P
     std::vector<std::unordered_map<char32_t, double>> emit_P;
     std::unordered_map<char32_t, std::vector<int>> char_state_tab_P;
     // For pruning, to replicate original logic
     std::vector<std::vector<int>> trans_P_keys;
+
+    inline double get_trans_P(int from, int to) {
+        return trans_P_flat[from * NUM_STATES + to];
+    }
+}
+
+// Finalseg HMM model data structures
+namespace FinalHMM {
+    std::vector<double> start_P; // 4 states: B, M, E, S
+    std::vector<std::vector<double>> trans_P; // 4x4 matrix
+    std::vector<std::unordered_map<char32_t, double>> emit_P; // 4 maps
+    bool initialized = false;
+
+    const std::unordered_map<char, int> state_map = {
+        {'B', 0}, {'M', 1}, {'E', 2}, {'S', 3}
+    };
+    const std::vector<char> reverse_state_map = {'B', 'M', 'E', 'S'};
+    // PrevStatus: B:ES, M:MB, S:SE, E:BM
+    const std::vector<std::vector<int>> prev_states = {
+        {2, 3}, // B <- E, S
+        {1, 0}, // M <- M, B
+        {0, 1}, // E <- B, M
+        {3, 2}  // S <- S, E
+    };
 }
 
 
@@ -81,7 +105,7 @@ public:
             py::tuple pair = item.cast<py::tuple>();
             std::string word = pair[0].cast<std::string>();
             int freq = pair[1].cast<int>();
-            trie_.update(word.c_str(), word.length(), freq);
+            trie_.update(word.c_str(), word.length()) = freq;
             total_freq += static_cast<double>(freq);
         }
         return total_freq;
@@ -89,147 +113,37 @@ public:
 
     void clear() {
         trie_.clear();
+        word_tag_tab.clear();
     }
 
-    void add_word(const std::string& word, int freq) {
-        trie_.update(word.c_str(), word.length(), freq);
+    void add_word(const std::string& word, int freq, const std::string& tag = "x") {
+        trie_.update(word.c_str(), word.length()) = freq;
+        if (!tag.empty()) {
+            word_tag_tab[word] = tag;
+        }
     }
 
     void del_word(const std::string& word) {
         trie_.erase(word.c_str(), word.length());
+        word_tag_tab.erase(word);
     }
 
-
-    // New method for loading dictionary from file, including prefix generation, entirely in C++
-    double load_from_file_and_build(const std::string& filename, py::dict user_word_tag_tab_py) {
-        trie_.clear(); // Clear existing trie before loading new dictionary
-
-        std::ifstream file(filename);
-        if (!file.is_open()) {
-            throw std::runtime_error("Could not open dictionary file: " + filename);
-        }
-
-        std::string line;
-        bool first_line = true;
-        std::map<std::string, int> all_words; // Use std::map to store words, which keeps them sorted, crucial for cedar::da::build
-        std::unordered_map<std::string, std::string> tags_to_update_py; // For batch updating Python dict
-
-        while (std::getline(file, line)) {
-            // Handle BOM on first line if present
-            if (first_line) {
-                first_line = false;
-                if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
-                    line = line.substr(3);
-                }
-            }
-
-            // Trim whitespace
-            size_t first = line.find_first_not_of(" \t\r\n");
-            size_t last = line.find_last_not_of(" \t\r\n");
-            if (std::string::npos == first || std::string::npos == last) {
-                continue; // Empty or all-whitespace line
-            }
-            line = line.substr(first, (last - first + 1));
-
-            if (line.empty() || line[0] == '#') continue; // Skip empty lines and comments
-
-            std::string word_str;
-            int freq = 3; // Default frequency (jieba's default for new words)
-            std::string tag_str = "x"; // Default tag
-
-            std::istringstream iss(line);
-            std::vector<std::string> parts;
-            std::string part;
-            while (iss >> part) {
-                parts.push_back(part);
-            }
-
-            if (parts.empty()) continue;
-
-            word_str = parts[0];
-            if (parts.size() > 1) {
-                // Check if the second part is a number (frequency)
-                bool is_digit = !parts[1].empty() && std::all_of(parts[1].begin(), parts[1].end(), ::isdigit);
-                if (is_digit) {
-                    freq = std::stoi(parts[1]);
-                } else {
-                    tag_str = parts[1];
-                }
-            }
-            if (parts.size() > 2) {
-                tag_str = parts[2];
-            }
-
-            // Add or update the main word in all_words
-            all_words[word_str] = freq;
-            tags_to_update_py[word_str] = tag_str; // Store tag for batch update
-
-            // Generate prefixes for the main word and add them with freq 0 if not present
-            size_t current_pos = 0;
-            const char* word_cstr = word_str.c_str();
-            size_t word_len = word_str.length();
-
-            while (current_pos < word_len) {
-                size_t char_len = 1;
-                unsigned char c = static_cast<unsigned char>(word_cstr[current_pos]);
-                if (c < 0x80) char_len = 1; // 1-byte UTF-8
-                else if ((c & 0xE0) == 0xC0) char_len = 2; // 2-byte UTF-8
-                else if ((c & 0xF0) == 0xE0) char_len = 3; // 3-byte UTF-8
-                else if ((c & 0xF8) == 0xF0) char_len = 4; // 4-byte UTF-8
-                else { // Invalid UTF-8 start byte, or more than 4 bytes, treat as 1 byte
-                    char_len = 1;
-                }
-
-                if (current_pos + char_len > word_len) break; // Malformed UTF-8 or end of string
-
-                std::string wfrag = word_str.substr(0, current_pos + char_len);
-
-                if (wfrag.length() < word_str.length()) { // Don't add the full word as a 0-freq prefix
-                    // Insert with 0 frequency only if it doesn't already exist as a main word
-                    all_words.insert({wfrag, 0});
-                }
-                current_pos += char_len;
-            }
-        }
-        file.close(); // Close file after processing all lines
-
-        // Prepare data for cedar::da::build
-        std::vector<const char*> keys_data;
-        std::vector<size_t> lengths_data;
-        std::vector<int> freqs_data;
-
-        keys_data.reserve(all_words.size());
-        lengths_data.reserve(all_words.size());
-        freqs_data.reserve(all_words.size());
-
-        double final_total_freq = 0.0;
-        // Populate keys, lengths, freqs vectors and calculate total_freq
-        for (const auto& pair : all_words) {
-            keys_data.push_back(pair.first.c_str());
-            lengths_data.push_back(pair.first.length());
-            freqs_data.push_back(pair.second);
-            final_total_freq += static_cast<double>(pair.second);
-        }
-
-        // Build DatTrie once
-        trie_.build(keys_data.size(), keys_data.data(), lengths_data.data(), freqs_data.data());
-
-        // Batch update Python user_word_tag_tab_py
-        user_word_tag_tab_py.clear(); // Clear existing content
-        for (const auto& pair : tags_to_update_py) {
-            user_word_tag_tab_py[py::str(pair.first)] = py::str(pair.second);
-        }
-
-        return final_total_freq;
-    }
-
-    int search(const std::string& word) {
+    int search(const std::string& word) const {
         return trie_.exactMatchSearch<int>(word.c_str(), word.length());
     }
 
-    int search(const char* s, size_t len) {
+    const std::string& get_tag(const std::string& word) const {
+        auto it = word_tag_tab.find(word);
+        if (it != word_tag_tab.end()) return it->second;
+        static const std::string default_tag = "x";
+        return default_tag;
+    }
+
+    int search(const char* s, size_t len) const {
         return trie_.exactMatchSearch<int>(s, len);
     }
+
+    std::unordered_map<std::string, std::string> word_tag_tab;
 
     int open(const std::string& filename, size_t offset = 0) {
         return trie_.open(filename.c_str(), "rb", offset);
@@ -241,6 +155,24 @@ public:
 
     size_t num_keys() const {
         return trie_.num_keys();
+    }
+
+    py::bytes save_to_bytes() const {
+        char* data = nullptr;
+        size_t data_size = 0;
+        if (trie_.save_to_memory(&data, &data_size) != 0) {
+            throw std::runtime_error("Failed to save trie to memory");
+        }
+        py::bytes result(data, data_size);
+        std::free(data);
+        return result;
+    }
+
+    void load_from_bytes(py::bytes data) {
+        std::string_view sv = data;
+        if (trie_.open_from_memory(sv.data(), sv.size()) != 0) {
+            throw std::runtime_error("Failed to load trie from memory");
+        }
     }
 
     void extract_words(std::vector<std::pair<std::string, int>>& words_with_freqs) {
@@ -265,6 +197,15 @@ public:
             words_with_freqs.emplace_back(std::string(key_buf, len_p), val);
         }
     }
+
+    void update_word_tag_tab(py::dict new_tab) {
+        for (auto item : new_tab) {
+            word_tag_tab[item.first.cast<std::string>()] = item.second.cast<std::string>();
+        }
+    }
+
+    const cedar::da<int>& trie_ref() const { return trie_; }
+    cedar::da<int>& trie_ref() { return trie_; }
 
 private:
     cedar::da<int> trie_;
@@ -295,61 +236,58 @@ py::object get_dict_item_safe(py::dict d, py::object key, py::object default_val
 }
 
 
-int _calc_pybind(DatTrie& trie, py::sequence sentence, py::dict DAG, py::dict& route, py::object total_obj)
-{
-    double total;
-    if (py::isinstance<py::float_>(total_obj) || py::isinstance<py::int_>(total_obj)) {
-        total = total_obj.cast<double>();
-    } else {
-        throw py::type_error("Expected a float or int object for 'total'.");
+// Helper to get byte offsets for each character in a UTF-8 string
+std::vector<size_t> get_utf8_offsets(const std::string& s) {
+    std::vector<size_t> offsets;
+    offsets.reserve(s.size() + 1);
+    for (size_t i = 0; i < s.size(); ) {
+        offsets.push_back(i);
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) i += 1;
+        else if ((c & 0xE0) == 0xC0) i += 2;
+        else if ((c & 0xF0) == 0xE0) i += 3;
+        else if ((c & 0xF8) == 0xF0) i += 4;
+        else i += 1; // Should not happen in valid UTF-8
     }
+    offsets.push_back(s.size());
+    return offsets;
+}
 
-    const py::ssize_t N = py::len(sentence);
+int _calc_pybind(DatTrie& trie, const std::string& sentence, py::dict DAG, py::dict& route, double total)
+{
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
     const double logtotal = log(total);
-    double max_freq_val, fq_val, fq_2_val, fq_last_val;
-    py::ssize_t max_x_val, idx, i, t_list_len, x_val;
+    double max_freq_val, fq_last_val;
+    size_t max_x_val, idx, i, t_list_len, x_val;
 
-    py::tuple temp_tuple = py::make_tuple(0, 0);
-    route[py::cast(N)] = temp_tuple;
+    route[py::cast(N)] = py::make_tuple(0.0, 0);
 
-    for(idx = N - 1; idx >= 0 ;idx--)
+    for(int idx_signed = (int)N - 1; idx_signed >= 0 ; idx_signed--)
     {
-        max_freq_val = std::numeric_limits<double>::lowest(); // Use lowest() for smallest possible double
+        idx = (size_t)idx_signed;
+        max_freq_val = std::numeric_limits<double>::lowest();
         max_x_val = 0;
 
         py::object idx_key = py::cast(idx);
-
-        if (!DAG.contains(idx_key)) {
-            throw py::key_error("DAG does not contain key " + std::to_string(idx));
-        }
-
         py::list t_list = DAG[idx_key].cast<py::list>();
         t_list_len = py::len(t_list);
 
         for(i = 0; i < t_list_len; i++)
         {
-            fq_val = 1;
-            x_val = get_long_from_py_object(t_list[i]);
+            x_val = t_list[i].cast<size_t>();
 
-            // PySequence_GetSlice(sentence, idx, x+1)
-            py::slice slice_obj(py::cast(idx), py::cast(x_val + 1), py::none()); // Corrected slice constructor
-            py::object slice_of_sentence_obj = sentence[slice_obj];
-            std::string slice_of_sentence = slice_of_sentence_obj.cast<std::string>();
+            size_t start = offsets[idx];
+            size_t len = offsets[x_val + 1] - start;
+            std::string_view word_view(sentence.data() + start, len);
 
-            fq_val = trie.search(slice_of_sentence);
-            if (fq_val == -1) fq_val = 0;
-            if (fq_val == 0) fq_val = 1;
+            int fq_val = trie.search(std::string(word_view));
+            if (fq_val <= 0) fq_val = 1;
 
-            // PyDict_GetItem(route, PyInt_FromLong((long)x + 1))
             py::object route_key = py::cast(x_val + 1);
-            py::object t_tuple_obj = get_dict_item_safe(route, route_key);
-            if (t_tuple_obj.is_none()) {
-                throw py::key_error("route does not contain key " + std::to_string(x_val + 1));
-            }
-            py::tuple t_tuple = t_tuple_obj.cast<py::tuple>();
+            py::tuple t_tuple = route[route_key].cast<py::tuple>();
 
-            // PyFloat_AsDouble(PyTuple_GetItem(t_tuple, 0))
-            fq_2_val = get_double_from_py_object(t_tuple[0]);
+            double fq_2_val = t_tuple[0].cast<double>();
             fq_last_val = log(static_cast<double>(fq_val)) - logtotal + fq_2_val;
 
             if(fq_last_val > max_freq_val)
@@ -357,39 +295,36 @@ int _calc_pybind(DatTrie& trie, py::sequence sentence, py::dict DAG, py::dict& r
                 max_freq_val = fq_last_val;
                 max_x_val = x_val;
             }
-            // pybind11 handles reference counting, no need for Py_DecRef
         }
-        py::tuple tuple_last = py::make_tuple(max_freq_val, max_x_val);
-        route[py::cast(idx)] = tuple_last;
+        route[py::cast(idx)] = py::make_tuple(max_freq_val, max_x_val);
     }
     return 1;
 }
 
-int _get_DAG_pybind(py::dict DAG, py::dict FREQ, py::sequence sentence)
+int _get_DAG_pybind(py::dict DAG, py::dict FREQ, const std::string& sentence)
 {
-    const py::ssize_t N = py::len(sentence);
-    py::object frag; // Use py::object for frag to handle its changing type (item vs slice)
-    py::ssize_t i, k;
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
 
-    for(k = 0; k < N; k++)
+    for(size_t k = 0; k < N; k++)
     {
-        py::list tmplist; // pybind11 list
-        i = k;
-        frag = sentence[k]; // Get item at k
-
-        // Loop while i < N and FREQ contains frag
-        while(i < N && FREQ.contains(frag))
+        py::list tmplist;
+        for(size_t i = k; i < N; i++)
         {
-            // Check if FREQ[frag] is truthy (non-zero long)
-            py::object freq_item = FREQ[frag];
-            if (!freq_item.is_none() && get_long_from_py_object(freq_item))
+            size_t start = offsets[k];
+            size_t len = offsets[i + 1] - start;
+            std::string word(sentence.data() + start, len);
+
+            if (FREQ.contains(word))
             {
-                tmplist.append(i);
+                py::object freq_item = FREQ[py::cast(word)];
+                if (!freq_item.is_none() && freq_item.cast<long>())
+                {
+                    tmplist.append(i);
+                }
+            } else {
+                break;
             }
-            i++;
-            // Update frag to be a slice from k to i+1
-            py::slice slice_obj(py::cast(k), py::cast(i + 1), py::none()); // Corrected slice constructor
-            frag = sentence[slice_obj];
         }
 
         if (py::len(tmplist) == 0) {
@@ -400,85 +335,54 @@ int _get_DAG_pybind(py::dict DAG, py::dict FREQ, py::sequence sentence)
     return 1;
 }
 
-int _get_DAG_and_calc_pybind(DatTrie& trie, py::sequence sentence, py::list route, double total)
+int _get_DAG_and_calc_pybind(DatTrie& trie, const std::string& sentence, py::list route, double total)
 {
-    const py::ssize_t N = py::len(sentence);
-    // Using std::vector for dynamic arrays
-    std::vector<std::vector<py::ssize_t>> DAG(N);
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
 
-    py::ssize_t k, i, idx, max_x_val;
-    long fq_val;
-    py::ssize_t x_val;
-    py::object frag;
-    py::object t_f_obj;
-    py::object o_freq_obj;
-
+    std::vector<std::vector<size_t>> DAG(N);
     std::vector<std::array<double, 2>> _route(N + 1);
     double logtotal = log(total);
-    double max_freq_val;
-    double fq_2_val, fq_last_val;
 
-    _route[N][0] = 0;
-    _route[N][1] = 0;
-
-    for(k = 0; k < N; k++)
+    for(size_t k = 0; k < N; k++)
     {
-        i = k;
-        while(i < N)
+        for(size_t i = k; i < N; i++)
         {
-            py::slice slice_obj(py::cast(k), py::cast(i + 1), py::none());
-            frag = sentence[slice_obj];
+            size_t start = offsets[k];
+            size_t len = offsets[i + 1] - start;
+            std::string word(sentence.data() + start, len);
 
-            bool found = false;
-            int freq = 0;
-
-            std::string frag_str = frag.cast<std::string>();
-            freq = trie.search(frag_str);
-            if (freq != -1) {
-                found = true;
-            }
-
-            if (!found) {
-                break;
-            }
-
+            int freq = trie.search(word);
+            if (freq == -1) break;
             if (freq > 0) {
                 DAG[k].push_back(i);
             }
-            i++;
         }
-        if(DAG[k].empty())
-        {
+        if(DAG[k].empty()) {
             DAG[k].push_back(k);
         }
     }
 
+    _route[N][0] = 0.0;
+    _route[N][1] = 0.0;
 
-    for(idx = N - 1; idx >= 0 ;idx--)
+    for(int idx_signed = (int)N - 1; idx_signed >= 0 ; idx_signed--)
     {
-        max_freq_val = std::numeric_limits<double>::lowest();
-        max_x_val = 0;
-        py::ssize_t t_list_len = DAG[idx].size();
+        size_t idx = (size_t)idx_signed;
+        double max_freq_val = std::numeric_limits<double>::lowest();
+        size_t max_x_val = 0;
 
-        for(i = 0; i < t_list_len; i++)
+        for(size_t x_val : DAG[idx])
         {
-            fq_val = 1;
-            x_val = DAG[idx][i];
+            size_t start = offsets[idx];
+            size_t len = offsets[x_val + 1] - start;
+            std::string word(sentence.data() + start, len);
 
-            py::slice slice_obj(py::cast(idx), py::cast(x_val + 1), py::none());
-            py::object slice_of_sentence = sentence[slice_obj];
+            int fq_val = trie.search(word);
+            if (fq_val <= 0) fq_val = 1;
 
-            std::string slice_str = slice_of_sentence.cast<std::string>();
-            int trie_freq = trie.search(slice_str);
-            if (trie_freq != -1) {
-                fq_val = trie_freq;
-            } else {
-                fq_val = 0;
-            }
-            if (fq_val == 0) fq_val = 1;
-
-            fq_2_val = _route[x_val + 1][0];
-            fq_last_val = log(static_cast<double>(fq_val)) - logtotal + fq_2_val;
+            double fq_2_val = _route[x_val + 1][0];
+            double fq_last_val = log(static_cast<double>(fq_val)) - logtotal + fq_2_val;
 
             if(fq_last_val >= max_freq_val)
             {
@@ -487,11 +391,12 @@ int _get_DAG_and_calc_pybind(DatTrie& trie, py::sequence sentence, py::list rout
             }
         }
         _route[idx][0] = max_freq_val;
-        _route[idx][1] = static_cast<double>(max_x_val);
+        _route[idx][1] = (double)max_x_val;
     }
-    for(i = 0; i <= N; i++)
+
+    for(size_t i = 0; i <= N; i++)
     {
-        route.append(static_cast<long>(_route[i][1]));
+        route.append((long)_route[i][1]);
     }
     return 1;
 }
@@ -645,11 +550,42 @@ int _get_trie_pybind(DatTrie& trie, const std::string& filename, size_t offset =
 }
 
 
+// Pair class to replace Python-side pair for performance
+class Pair {
+public:
+    std::string word;
+    std::string flag;
+
+    Pair(std::string w, std::string f) : word(std::move(w)), flag(std::move(f)) {}
+
+    std::string toString() const {
+        return word + "/" + flag;
+    }
+
+    std::string repr() const {
+        return "pair('" + word + "', '" + flag + "')";
+    }
+
+    bool operator<(const Pair& other) const {
+        return word < other.word;
+    }
+
+    bool operator==(const Pair& other) const {
+        return word == other.word && flag == other.flag;
+    }
+};
+
 // Helper struct for Viterbi result
 struct ViterbiResult {
     double prob;
-    std::vector<std::pair<std::u32string, std::string>> word_tags;
+    std::vector<Pair> word_tags;
 };
+
+// Helper to convert u32string to UTF-8 string
+std::string u32_to_utf8(const std::u32string& s) {
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+    return conv.to_bytes(s);
+}
 
 ViterbiResult posseg_viterbi_impl(const std::u32string& obs) {
     size_t obs_len = obs.length();
@@ -657,10 +593,10 @@ ViterbiResult posseg_viterbi_impl(const std::u32string& obs) {
         return {0.0, {}};
     }
 
-    // Optimized: Use vector instead of unordered_map for V and mem_path
-    // V[t][state] = prob
-    std::vector<std::vector<double>> V(obs_len, std::vector<double>(HMM::NUM_STATES, HMM::MIN_INF));
-    std::vector<std::vector<int>> mem_path(obs_len, std::vector<int>(HMM::NUM_STATES, -1));
+    size_t num_states = HMM::NUM_STATES;
+    // V[t * num_states + state] = prob
+    std::vector<double> V(obs_len * num_states, HMM::MIN_INF);
+    std::vector<int> mem_path(obs_len * num_states, -1);
 
     // Initialization
     char32_t first_char = obs[0];
@@ -669,7 +605,8 @@ ViterbiResult posseg_viterbi_impl(const std::u32string& obs) {
     if (HMM::char_state_tab_P.count(first_char)) {
         initial_states = &HMM::char_state_tab_P.at(first_char);
     } else {
-        for(size_t i=0; i< HMM::NUM_STATES; ++i) all_states_vec.push_back(static_cast<int>(i));
+        all_states_vec.reserve(num_states);
+        for(size_t i=0; i< num_states; ++i) all_states_vec.push_back(static_cast<int>(i));
         initial_states = &all_states_vec;
     }
 
@@ -678,46 +615,66 @@ ViterbiResult posseg_viterbi_impl(const std::u32string& obs) {
         if (static_cast<size_t>(y) < HMM::emit_P.size() && HMM::emit_P[y].count(first_char)) {
              emit = HMM::emit_P[y].at(first_char);
         }
-        V[0][y] = HMM::start_P[y] + emit;
-        mem_path[0][y] = -1; // Represents empty path
+        V[y] = HMM::start_P[y] + emit;
     }
+
+    // Reuse vectors to avoid re-allocation
+    std::vector<int> prev_states;
+    std::vector<int> obs_states;
+    std::vector<bool> states_mask(num_states, false);
+    prev_states.reserve(num_states);
+    obs_states.reserve(num_states);
 
     // Recursion
     for (size_t t = 1; t < obs_len; ++t) {
         char32_t current_char = obs[t];
-
-        std::vector<int> prev_states;
-        // Find active states from previous step
-        for(int i = 0; static_cast<size_t>(i) < HMM::NUM_STATES; ++i) {
-            if (V[t-1][i] > HMM::MIN_INF && !HMM::trans_P_keys[i].empty()) {
-                prev_states.push_back(i);
+        prev_states.clear();
+        for(size_t i = 0; i < num_states; ++i) {
+            if (V[(t-1) * num_states + i] > HMM::MIN_INF) {
+                prev_states.push_back(static_cast<int>(i));
             }
         }
 
-        std::set<int> prev_states_expect_next;
-        for (int x : prev_states) {
-            for (int y_ : HMM::trans_P_keys[x]) {
-                prev_states_expect_next.insert(y_);
-            }
-        }
+        if (prev_states.empty()) break;
 
-        std::set<int> obs_states;
+        // Determine candidate states for current char
+        obs_states.clear();
+        std::fill(states_mask.begin(), states_mask.end(), false);
+
         if (HMM::char_state_tab_P.count(current_char)) {
             const std::vector<int>& char_states = HMM::char_state_tab_P.at(current_char);
-            std::set<int> char_states_set(char_states.begin(), char_states.end());
-            std::set_intersection(prev_states_expect_next.begin(), prev_states_expect_next.end(),
-                                  char_states_set.begin(), char_states_set.end(),
-                                  std::inserter(obs_states, obs_states.begin()));
+            for (int y : char_states) {
+                states_mask[y] = true;
+            }
+            // Only keep states that can be reached from prev_states
+            for (int x : prev_states) {
+                for (int y_next : HMM::trans_P_keys[x]) {
+                    if (states_mask[y_next]) {
+                        obs_states.push_back(y_next);
+                        states_mask[y_next] = false; // Avoid duplicates
+                    }
+                }
+            }
         } else {
-             obs_states = prev_states_expect_next;
+            for (int x : prev_states) {
+                for (int y_next : HMM::trans_P_keys[x]) {
+                    if (!states_mask[y_next]) {
+                        obs_states.push_back(y_next);
+                        states_mask[y_next] = true;
+                    }
+                }
+            }
         }
 
         if (obs_states.empty()) {
-             if (!prev_states_expect_next.empty()) {
-                obs_states = prev_states_expect_next;
-             } else {
-                for(size_t i=0; i< HMM::NUM_STATES; ++i) obs_states.insert(i);
-             }
+            for (int x : prev_states) {
+                for (int y_next : HMM::trans_P_keys[x]) {
+                    if (!states_mask[y_next]) {
+                        obs_states.push_back(y_next);
+                        states_mask[y_next] = true;
+                    }
+                }
+            }
         }
 
         for (int y : obs_states) {
@@ -730,28 +687,29 @@ ViterbiResult posseg_viterbi_impl(const std::u32string& obs) {
             }
 
             for (int y0 : prev_states) {
-                double trans = HMM::trans_P[y0][y];
+                double trans = HMM::get_trans_P(y0, y);
                 if (trans == HMM::MIN_INF) continue;
 
-                double current_prob = V[t - 1][y0] + trans;
+                double current_prob = V[(t - 1) * num_states + y0] + trans;
                 if (current_prob > max_prob) {
                     max_prob = current_prob;
                     best_prev_state = y0;
                 }
             }
-            V[t][y] = max_prob + em_p;
-            mem_path[t][y] = best_prev_state;
+            V[t * num_states + y] = max_prob + em_p;
+            mem_path[t * num_states + y] = best_prev_state;
         }
     }
 
     // Termination
     double final_max_prob = HMM::MIN_INF;
     int last_state = -1;
+    size_t last_idx_base = (obs_len - 1) * num_states;
 
-    for (int y = 0; static_cast<size_t>(y) < HMM::NUM_STATES; ++y) {
-        if (V.back()[y] > final_max_prob) {
-            final_max_prob = V.back()[y];
-            last_state = y;
+    for (size_t y = 0; y < num_states; ++y) {
+        if (V[last_idx_base + y] > final_max_prob) {
+            final_max_prob = V[last_idx_base + y];
+            last_state = static_cast<int>(y);
         }
     }
 
@@ -759,50 +717,31 @@ ViterbiResult posseg_viterbi_impl(const std::u32string& obs) {
         return {0.0, {}};
     }
 
-    // Path backtracking for states
-    std::vector<std::pair<char, std::string>> states_route;
-    int current_state = last_state;
-    for (int t = obs_len - 1; t >= 0; --t) {
-        if (current_state == -1) {
-             break; // Should not happen in a valid path
-        }
-        int pos_tag_id = current_state / 4;
-        std::string pos_tag = HMM::reverse_pos_tag_map[pos_tag_id];
-        char state_char = HMM::reverse_state_map[current_state % 4];
-
-        states_route.push_back({state_char, pos_tag});
-
-        current_state = mem_path[t][current_state];
+    // Path backtracking
+    std::vector<int> path_ids;
+    path_ids.reserve(obs_len);
+    int curr = last_state;
+    for (int t = static_cast<int>(obs_len) - 1; t >= 0; --t) {
+        path_ids.push_back(curr);
+        curr = mem_path[t * num_states + curr];
     }
-    std::reverse(states_route.begin(), states_route.end());
+    std::reverse(path_ids.begin(), path_ids.end());
 
-    // Now, reconstruct words and their POS tags based on states_route and obs
-    std::vector<std::pair<std::u32string, std::string>> word_pos_tags_route;
+    // Word reconstruction
+    std::vector<Pair> word_pos_tags_route;
     size_t begin = 0;
-    size_t nexti = 0;
-
     for (size_t i = 0; i < obs_len; ++i) {
-        char state_char = states_route[i].first;
-        std::string pos_tag = states_route[i].second;
+        int state_id = path_ids[i];
+        int pos_tag_id = state_id / 4;
+        char state_char = HMM::reverse_state_map[state_id % 4];
+        std::string pos_tag = HMM::reverse_pos_tag_map[pos_tag_id];
 
         if (state_char == 'B') {
             begin = i;
         } else if (state_char == 'E') {
-            word_pos_tags_route.push_back({obs.substr(begin, i + 1 - begin), pos_tag});
-            nexti = i + 1;
+            word_pos_tags_route.emplace_back(u32_to_utf8(obs.substr(begin, i + 1 - begin)), pos_tag);
         } else if (state_char == 'S') {
-            word_pos_tags_route.push_back({obs.substr(i, 1), pos_tag});
-            nexti = i + 1;
-        }
-    }
-    // Handle any remaining part of the sentence
-    if (nexti < obs_len) {
-        std::u32string word_u32 = obs.substr(nexti);
-        if (!states_route.empty()) {
-            std::string pos_tag = states_route[nexti].second;
-            word_pos_tags_route.push_back({word_u32, pos_tag});
-        } else {
-            word_pos_tags_route.push_back({word_u32, "x"});
+            word_pos_tags_route.emplace_back(u32_to_utf8(obs.substr(i, 1)), pos_tag);
         }
     }
 
@@ -813,20 +752,196 @@ py::tuple _posseg_viterbi_cpp(std::u32string obs) {
     ViterbiResult result = posseg_viterbi_impl(obs);
 
     py::list word_pos_tags_route;
-    for (const auto& item : result.word_tags) {
-        word_pos_tags_route.append(py::make_tuple(item.first, item.second));
+    for (auto& item : result.word_tags) {
+        word_pos_tags_route.append(std::move(item));
     }
 
     return py::make_tuple(result.prob, word_pos_tags_route);
 }
 
-// Helper to convert u32string to UTF-8 string
-std::string u32_to_utf8(const std::u32string& s) {
-    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
-    return conv.to_bytes(s);
+void load_finalseg_hmm_model(py::dict start_p_dict, py::dict trans_p_dict, py::dict emit_p_dict) {
+    FinalHMM::start_P.assign(4, HMM::MIN_FLOAT);
+    FinalHMM::trans_P.assign(4, std::vector<double>(4, HMM::MIN_FLOAT));
+    FinalHMM::emit_P.assign(4, std::unordered_map<char32_t, double>());
+
+    for (auto item : start_p_dict) {
+        std::string state_str = item.first.cast<std::string>();
+        double prob = item.second.cast<double>();
+        if (FinalHMM::state_map.count(state_str[0])) {
+            FinalHMM::start_P[FinalHMM::state_map.at(state_str[0])] = prob;
+        }
+    }
+
+    for (auto from_item : trans_p_dict) {
+        char from_state = from_item.first.cast<std::string>()[0];
+        int from_id = FinalHMM::state_map.at(from_state);
+        py::dict to_dict = from_item.second.cast<py::dict>();
+        for (auto to_item : to_dict) {
+            char to_state = to_item.first.cast<std::string>()[0];
+            int to_id = FinalHMM::state_map.at(to_state);
+            FinalHMM::trans_P[from_id][to_id] = to_item.second.cast<double>();
+        }
+    }
+
+    for (auto item : emit_p_dict) {
+        char state = item.first.cast<std::string>()[0];
+        int id = FinalHMM::state_map.at(state);
+        py::dict char_prob_dict = item.second.cast<py::dict>();
+        for (auto char_item : char_prob_dict) {
+            std::u32string ch_str = char_item.first.cast<std::u32string>();
+            if (!ch_str.empty()) {
+                FinalHMM::emit_P[id][ch_str[0]] = char_item.second.cast<double>();
+            }
+        }
+    }
+    FinalHMM::initialized = true;
 }
 
-double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_word_tag_tab_py, py::object batch_add_force_split_func) {
+// Internal finalseg Viterbi implementation returning a vector of strings
+std::vector<std::string> finalseg_viterbi_internal(const std::u32string& obs) {
+    size_t obs_len = obs.length();
+    if (obs_len == 0) return {};
+
+    if (!FinalHMM::initialized) {
+        // Fallback: return single characters if models are not loaded
+        std::vector<std::string> words;
+        words.reserve(obs_len);
+        for (char32_t ch : obs) {
+            words.push_back(u32_to_utf8(std::u32string(1, ch)));
+        }
+        return words;
+    }
+
+    std::vector<std::array<double, 4>> V(obs_len);
+    std::vector<std::array<int, 4>> path(obs_len);
+
+    for (int i = 0; i < 4; ++i) {
+        double emit = HMM::MIN_FLOAT;
+        if (FinalHMM::emit_P[i].count(obs[0])) {
+            emit = FinalHMM::emit_P[i].at(obs[0]);
+        }
+        V[0][i] = FinalHMM::start_P[i] + emit;
+        path[0][i] = i;
+    }
+
+    for (size_t t = 1; t < obs_len; ++t) {
+        char32_t current_char = obs[t];
+        for (int y = 0; y < 4; ++y) {
+            double em_p = HMM::MIN_FLOAT;
+            if (FinalHMM::emit_P[y].count(current_char)) {
+                em_p = FinalHMM::emit_P[y].at(current_char);
+            }
+
+            double max_prob = HMM::MIN_INF;
+            int best_prev = -1;
+
+            for (int y0 : FinalHMM::prev_states[y]) {
+                double prob = V[t - 1][y0] + FinalHMM::trans_P[y0][y] + em_p;
+                if (prob > max_prob) {
+                    max_prob = prob;
+                    best_prev = y0;
+                }
+            }
+            V[t][y] = max_prob;
+            path[t][y] = best_prev;
+        }
+    }
+
+    double max_prob_final = V[obs_len - 1][2]; // 'E'
+    int best_state_final = 2;
+    if (V[obs_len - 1][3] > max_prob_final) { // 'S'
+        max_prob_final = V[obs_len - 1][3];
+        best_state_final = 3;
+    }
+
+    std::string res_states = "";
+    int curr = best_state_final;
+    for (int t = static_cast<int>(obs_len) - 1; t >= 0; --t) {
+        res_states += FinalHMM::reverse_state_map[curr];
+        curr = path[t][curr];
+    }
+    std::reverse(res_states.begin(), res_states.end());
+
+    std::vector<std::string> words;
+    size_t begin = 0;
+    for (size_t i = 0; i < obs_len; ++i) {
+        char pos = res_states[i];
+        if (pos == 'B') {
+            begin = i;
+        } else if (pos == 'E') {
+            words.push_back(u32_to_utf8(obs.substr(begin, i + 1 - begin)));
+        } else if (pos == 'S') {
+            words.push_back(u32_to_utf8(obs.substr(i, 1)));
+        }
+    }
+    return words;
+}
+
+py::tuple _finalseg_viterbi_cpp(std::u32string obs) {
+    size_t obs_len = obs.length();
+    if (obs_len == 0 || !FinalHMM::initialized) {
+        return py::make_tuple(0.0, py::list());
+    }
+
+    // Re-calculate for probability if needed for public API, or just return 0.0
+    // To be efficient and accurate, we re-run the Viterbi core but return (prob, path_str)
+    std::vector<std::array<double, 4>> V(obs_len);
+    std::vector<std::array<int, 4>> path(obs_len);
+
+    for (int i = 0; i < 4; ++i) {
+        double emit = HMM::MIN_FLOAT;
+        if (FinalHMM::emit_P[i].count(obs[0])) {
+            emit = FinalHMM::emit_P[i].at(obs[0]);
+        }
+        V[0][i] = FinalHMM::start_P[i] + emit;
+        path[0][i] = i;
+    }
+
+    for (size_t t = 1; t < obs_len; ++t) {
+        char32_t current_char = obs[t];
+        for (int y = 0; y < 4; ++y) {
+            double em_p = HMM::MIN_FLOAT;
+            if (FinalHMM::emit_P[y].count(current_char)) {
+                em_p = FinalHMM::emit_P[y].at(current_char);
+            }
+            double max_prob = HMM::MIN_INF;
+            int best_prev = -1;
+            for (int y0 : FinalHMM::prev_states[y]) {
+                double prob = V[t - 1][y0] + FinalHMM::trans_P[y0][y] + em_p;
+                if (prob > max_prob) {
+                    max_prob = prob;
+                    best_prev = y0;
+                }
+            }
+            V[t][y] = max_prob;
+            path[t][y] = best_prev;
+        }
+    }
+
+    double max_prob_final = V[obs_len - 1][2]; // 'E'
+    int best_state_final = 2;
+    if (V[obs_len - 1][3] > max_prob_final) { // 'S'
+        max_prob_final = V[obs_len - 1][3];
+        best_state_final = 3;
+    }
+
+    std::string res_states = "";
+    int curr = best_state_final;
+    for (int t = static_cast<int>(obs_len) - 1; t >= 0; --t) {
+        res_states += FinalHMM::reverse_state_map[curr];
+        curr = path[t][curr];
+    }
+    std::reverse(res_states.begin(), res_states.end());
+
+    return py::make_tuple(max_prob_final, py::cast(res_states));
+}
+
+
+double load_userdict_from_path_pybind(DatTrie& trie, const std::string& filename, py::dict& user_word_tag_tab_py, py::object batch_add_force_split_func) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open dictionary file: " + filename);
+    }
     // Collect all words and their frequencies, including those currently in the trie and from user dict
     // Use std::map to ensure keys are sorted, required for cedar::da::build
     std::map<std::string, int> all_words;
@@ -834,22 +949,19 @@ double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_w
     std::vector<std::string> force_split_words_to_add; // Collect words for batch force_split
 
     // Phase 1: Extract all existing words from the trie
-    // This is necessary because user dict words might overlap with existing main dict words.
-    // The user dict should have priority.
     std::vector<std::pair<std::string, int>> existing_trie_words;
     trie.extract_words(existing_trie_words);
     for (const auto& pair : existing_trie_words) {
         all_words[pair.first] = pair.second;
     }
 
-    // Phase 2: Process user dictionary lines from py::list
-    bool first_line_processed = false; // To handle BOM if any, though Python should handle this
-    for (py::handle line_handle : dict_lines) {
-        std::string line = line_handle.cast<std::string>();
-
-        // Simplified BOM handling, typically Python takes care of this
-        if (!first_line_processed) {
-            first_line_processed = true;
+    // Phase 2: Process user dictionary lines from file
+    std::string line;
+    bool first_line = true;
+    while (std::getline(file, line)) {
+        // Handle BOM on first line if present
+        if (first_line) {
+            first_line = false;
             if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
                 line = line.substr(3);
             }
@@ -890,11 +1002,9 @@ double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_w
             tag = parts[2];
         }
 
-        // Add to all_words (user words override existing words)
         all_words[word_str] = freq;
-        tags_from_user_dict_file[word_str] = tag; // Store tag only from user dict
+        tags_from_user_dict_file[word_str] = tag;
 
-        // Handle prefixes for the user word
         size_t len_word = word_str.length();
         const char* str_ptr = word_str.c_str();
         for (size_t i = 0; i < len_word; ) {
@@ -904,32 +1014,29 @@ double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_w
             else if ((c & 0xE0) == 0xC0) char_len = 2;
             else if ((c & 0xF0) == 0xE0) char_len = 3;
             else if ((c & 0xF8) == 0xF0) char_len = 4;
-            else { // Invalid UTF-8 start byte, or more than 4 bytes, treat as 1 byte
-                char_len = 1;
-            }
+            else { char_len = 1; }
 
-            if (i + char_len > len_word) break; // Malformed UTF-8
+            if (i + char_len > len_word) break;
 
             std::string wfrag = word_str.substr(0, i + char_len);
 
-            // Only add if it's not the full word and not already present
             if (wfrag.length() < word_str.length()) {
-                all_words.insert({wfrag, 0}); // Prefixes get 0 frequency
+                all_words.insert({wfrag, 0});
             }
             i += char_len;
         }
 
-        if (freq == 0) { // Collect words that need to be force split
+        if (freq == 0) {
             force_split_words_to_add.push_back(word_str);
         }
     }
 
+    file.close();
+
     // Phase 3: Prepare data for rebuilding
-    // Since all_words is std::map, keys are already sorted.
     std::vector<const char*> keys;
     std::vector<size_t> lengths;
     std::vector<int> freqs;
-
     keys.reserve(all_words.size());
     lengths.reserve(all_words.size());
     freqs.reserve(all_words.size());
@@ -943,17 +1050,18 @@ double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_w
     }
 
     // Phase 4: Rebuild DatTrie
-    trie.clear(); // Clear existing trie
     trie.build(keys.size(), keys.data(), lengths.data(), freqs.data());
 
-    // Phase 5: Update Python user_word_tag_tab
-    // Clear user_word_tag_tab_py and repopulate ONLY with tags explicitly from the user dict file
+    // Phase 5: Update Python and C++ word_tag_tab
     user_word_tag_tab_py.clear();
     for (const auto& pair : tags_from_user_dict_file) {
-        user_word_tag_tab_py[py::str(pair.first)] = py::str(pair.second);
+        py::str py_word = py::str(pair.first);
+        py::str py_tag = py::str(pair.second);
+        user_word_tag_tab_py[py_word] = py_tag;
+        trie.word_tag_tab[pair.first] = pair.second;
     }
 
-    // Phase 6: Batch call batch_add_force_split_func if provided
+    // Phase 6: Batch call batch_add_force_split_func
     if (!force_split_words_to_add.empty() && batch_add_force_split_func.ptr() != nullptr && PyCallable_Check(batch_add_force_split_func.ptr())) {
         py::list py_force_split_words = py::cast(force_split_words_to_add);
         batch_add_force_split_func(py_force_split_words);
@@ -963,12 +1071,119 @@ double load_userdict_pybind(DatTrie& trie, py::list dict_lines, py::dict& user_w
 }
 
 
+
+double load_main_dict_from_path_pybind(DatTrie& trie, const std::string& filename, py::dict& main_word_tag_tab_py) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open dictionary file: " + filename);
+    }
+    std::map<std::string, int> all_words;
+    std::unordered_map<std::string, std::string> tags_from_main_dict_file;
+
+    std::string line;
+    bool first_line = true;
+    while (std::getline(file, line)) {
+        if (first_line) {
+            first_line = false;
+            if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
+                line = line.substr(3);
+            }
+        }
+        size_t first = line.find_first_not_of(" \t\r\n");
+        size_t last = line.find_last_not_of(" \t\r\n");
+        if (std::string::npos == first || std::string::npos == last) {
+            continue;
+        }
+        line = line.substr(first, (last - first + 1));
+        if (line.empty() || line[0] == '#') continue;
+
+        std::string word_str;
+        int freq = 3;
+        std::string tag = "x";
+
+        std::istringstream iss(line);
+        std::vector<std::string> parts;
+        std::string part;
+        while (iss >> part) {
+            parts.push_back(part);
+        }
+
+        if (parts.empty()) continue;
+
+        word_str = parts[0];
+        if (parts.size() > 1) {
+            bool is_digit = !parts[1].empty() && std::all_of(parts[1].begin(), parts[1].end(), ::isdigit);
+            if (is_digit) {
+                freq = std::stoi(parts[1]);
+            } else {
+                tag = parts[1];
+            }
+        }
+        if (parts.size() > 2) {
+            tag = parts[2];
+        }
+
+        all_words[word_str] = freq;
+        tags_from_main_dict_file[word_str] = tag;
+
+        size_t len_word = word_str.length();
+        const char* str_ptr = word_str.c_str();
+        for (size_t i = 0; i < len_word; ) {
+            size_t char_len = 1;
+            unsigned char c = static_cast<unsigned char>(str_ptr[i]);
+            if (c < 0x80) char_len = 1;
+            else if ((c & 0xE0) == 0xC0) char_len = 2;
+            else if ((c & 0xF0) == 0xE0) char_len = 3;
+            else if ((c & 0xF8) == 0xF0) char_len = 4;
+            else { char_len = 1; }
+
+            if (i + char_len > len_word) break;
+
+            std::string wfrag = word_str.substr(0, i + char_len);
+
+            if (wfrag.length() < word_str.length()) {
+                all_words.insert({wfrag, 0});
+            }
+            i += char_len;
+        }
+    }
+
+    file.close();
+
+    std::vector<const char*> keys;
+    std::vector<size_t> lengths;
+    std::vector<int> freqs;
+    keys.reserve(all_words.size());
+    lengths.reserve(all_words.size());
+    freqs.reserve(all_words.size());
+
+    double new_total_freq = 0.0;
+    for (const auto& pair : all_words) {
+        keys.push_back(pair.first.c_str());
+        lengths.push_back(pair.first.length());
+        freqs.push_back(pair.second);
+        new_total_freq += pair.second;
+    }
+
+    trie.build(keys.size(), keys.data(), lengths.data(), freqs.data());
+
+    main_word_tag_tab_py.clear();
+    for (const auto& pair : tags_from_main_dict_file) {
+        py::str py_word = py::str(pair.first);
+        py::str py_tag = py::str(pair.second);
+        main_word_tag_tab_py[py_word] = py_tag;
+        trie.word_tag_tab[pair.first] = pair.second;
+    }
+
+    return new_total_freq;
+}
+
 void load_hmm_model(py::dict start_p_dict, py::dict trans_p_dict, py::dict emit_p_dict, py::dict char_state_tab_p_dict) {
     // Clear previous data
     HMM::pos_tag_map.clear();
     HMM::reverse_pos_tag_map.clear();
     HMM::start_P.clear();
-    HMM::trans_P.clear();
+    HMM::trans_P_flat.clear();
     HMM::emit_P.clear();
     HMM::char_state_tab_P.clear();
     HMM::trans_P_keys.clear();
@@ -987,7 +1202,7 @@ void load_hmm_model(py::dict start_p_dict, py::dict trans_p_dict, py::dict emit_
 
     HMM::NUM_STATES = HMM::pos_tag_map.size() * 4;
     HMM::start_P.assign(HMM::NUM_STATES, HMM::MIN_FLOAT);
-    HMM::trans_P.assign(HMM::NUM_STATES, std::vector<double>(HMM::NUM_STATES, HMM::MIN_INF));
+    HMM::trans_P_flat.assign(HMM::NUM_STATES * HMM::NUM_STATES, HMM::MIN_INF);
     HMM::emit_P.assign(HMM::NUM_STATES, std::unordered_map<char32_t, double>());
     HMM::trans_P_keys.assign(HMM::NUM_STATES, std::vector<int>());
 
@@ -1019,7 +1234,7 @@ void load_hmm_model(py::dict start_p_dict, py::dict trans_p_dict, py::dict emit_
             double prob = to_item.second.cast<double>();
             int to_id = HMM::get_state_tag_id(to_tag, to_state);
             if (to_id != -1) {
-                HMM::trans_P[from_id][to_id] = prob;
+                HMM::trans_P_flat[from_id * HMM::NUM_STATES + to_id] = prob;
                 HMM::trans_P_keys[from_id].push_back(to_id);
             }
         }
@@ -1065,38 +1280,24 @@ void load_hmm_model(py::dict start_p_dict, py::dict trans_p_dict, py::dict emit_
     }
 }
 
-py::dict _get_DAG(DatTrie& trie, py::sequence sentence) {
+py::dict _get_DAG(DatTrie& trie, const std::string& sentence) {
     py::dict DAG;
-    const py::ssize_t N = py::len(sentence);
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
 
-    for (py::ssize_t k = 0; k < N; k++) {
-        py::list tmplist; // pybind11 list
-        py::ssize_t i = k;
+    for (size_t k = 0; k < N; k++) {
+        py::list tmplist;
+        for (size_t i = k; i < N; i++) {
+            size_t start = offsets[k];
+            size_t len = offsets[i + 1] - start;
+            std::string word(sentence.data() + start, len);
 
-        while (i < N) {
-            py::slice slice_obj(py::cast(k), py::cast(i + 1), py::none());
-            py::object frag = sentence[slice_obj];
-
-            bool found = false;
-            int freq = 0;
-
-            std::string frag_str = frag.cast<std::string>();
-            freq = trie.search(frag_str);
-            if (freq != -1) {
-                found = true;
-            }
-
-            if (!found) {
-                break;
-            }
-
+            int freq = trie.search(word);
+            if (freq == -1) break;
             if (freq > 0) {
                 tmplist.append(i);
             }
-
-            i++;
         }
-
         if (py::len(tmplist) == 0) {
             tmplist.append(k);
         }
@@ -1130,303 +1331,232 @@ bool is_number(const std::u32string& s) {
     return true;
 }
 
-// Helper function to check if a u32string matches an english pattern
+// Helper function to check if a u32string matches an english pattern (must have at least one letter)
 bool is_english(const std::u32string& s) {
     if (s.empty()) return false;
+    bool has_alpha = false;
     for (char32_t ch : s) {
-        if (!((ch >= U'a' && ch <= U'z') || (ch >= U'A' && ch <= U'Z') || (ch >= U'0' && ch <= U'9'))) {
+        if ((ch >= U'a' && ch <= U'z') || (ch >= U'A' && ch <= U'Z')) {
+            has_alpha = true;
+        } else if (ch >= U'0' && ch <= U'9') {
+            // digit allowed
+        } else {
             return false;
         }
     }
-    return true;
+    return has_alpha;
 }
 
-// C++ implementation of posseg __cut_DAG
+// Optimized posseg __cut_DAG
 py::list _posseg_cut_DAG_cpp(
     DatTrie& trie,
-    const std::u32string& sentence,
-    py::dict word_tag_tab,
+    const std::string& sentence,
     double total
 ) {
-    size_t N = sentence.length();
-    if (N == 0) {
-        return py::list();
-    }
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
+    if (N == 0) return py::list();
 
-    // Get DAG and route using the existing C++ function
-    std::vector<std::vector<py::ssize_t>> DAG(N);
+    std::vector<std::vector<size_t>> DAG(N);
     std::vector<std::array<double, 2>> _route(N + 1);
     double logtotal = log(total);
 
-    // Build DAG
-    for (size_t k = 0; k < N; ++k) {
-        py::ssize_t i = k;
-        while (i < static_cast<py::ssize_t>(N)) {
-            std::u32string frag = sentence.substr(k, i - k + 1);
-            py::str frag_py = u32string_to_pystr(frag);
-
-            bool found = false;
-            int freq = 0;
-
-            std::string frag_str = py::cast<std::string>(frag_py);
-            freq = trie.search(frag_str);
-            if (freq != -1) {
-                found = true;
-            }
-
-            if (!found) {
-                break;
-            }
-
-            if (freq > 0) {
-                DAG[k].push_back(i);
-            }
-            i++;
+    for(size_t k = 0; k < N; k++) {
+        for(size_t i = k; i < N; i++) {
+            size_t start = offsets[k];
+            size_t len = offsets[i + 1] - start;
+            std::string word(sentence.data() + start, len);
+            int freq = trie.search(word);
+            if (freq == -1) break;
+            if (freq > 0) DAG[k].push_back(i);
         }
-        if (DAG[k].empty()) {
-            DAG[k].push_back(k);
-        }
+        if(DAG[k].empty()) DAG[k].push_back(k);
     }
 
-    // Calculate route
-    _route[N][0] = 0;
-    _route[N][1] = 0;
-
-    for (py::ssize_t idx = N - 1; idx >= 0; --idx) {
+    _route[N][0] = 0.0;
+    for(int idx_signed = (int)N - 1; idx_signed >= 0 ; idx_signed--) {
+        size_t idx = (size_t)idx_signed;
         double max_freq_val = std::numeric_limits<double>::lowest();
-        py::ssize_t max_x_val = 0;
-
-        for (py::ssize_t x_val : DAG[idx]) {
-            std::u32string slice = sentence.substr(idx, x_val - idx + 1);
-            py::str slice_py = u32string_to_pystr(slice);
-
-            long fq_val = 1;
-            std::string slice_str = py::cast<std::string>(slice_py);
-            int freq = trie.search(slice_str);
-            if (freq != -1) {
-                fq_val = freq;
-            } else {
-                fq_val = 0;
-            }
-            if (fq_val == 0) fq_val = 1;
-
-            double fq_2_val = _route[x_val + 1][0];
-            double fq_last_val = log(static_cast<double>(fq_val)) - logtotal + fq_2_val;
-
-            if (fq_last_val >= max_freq_val) {
+        size_t max_x_val = 0;
+        for(size_t x_val : DAG[idx]) {
+            size_t start = offsets[idx];
+            size_t len = offsets[x_val + 1] - start;
+            std::string word(sentence.data() + start, len);
+            int fq_val = trie.search(word);
+            if (fq_val <= 0) fq_val = 1;
+            double fq_last_val = log(static_cast<double>(fq_val)) - logtotal + _route[x_val + 1][0];
+            if(fq_last_val >= max_freq_val) {
                 max_freq_val = fq_last_val;
                 max_x_val = x_val;
             }
         }
         _route[idx][0] = max_freq_val;
-        _route[idx][1] = static_cast<double>(max_x_val);
+        _route[idx][1] = (double)max_x_val;
     }
 
-    // Now process the route to generate pairs
     py::list result;
     size_t x = 0;
-    std::u32string buf;
+    std::string buf;
 
-    auto get_tag = [&word_tag_tab](const std::u32string& word) -> std::string {
-        py::str word_py = u32string_to_pystr(word);
-        if (word_tag_tab.contains(word_py)) {
-            return py::cast<std::string>(word_tag_tab[word_py]);
+    auto process_buffer = [&](const std::string& buffer) {
+        if (buffer.empty()) return;
+
+        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+        std::u32string buf_u32 = conv.from_bytes(buffer);
+
+        if (buf_u32.length() == 1) {
+            result.append(Pair(buffer, trie.get_tag(buffer)));
+            return;
         }
-        return "x";
-    };
 
-    auto process_buffer = [&](const std::u32string& buffer) -> py::list {
-        py::list buf_result;
-        if (buffer.length() == 1) {
-            std::string tag = get_tag(buffer);
-            buf_result.append(py::make_tuple(u32string_to_pystr(buffer), tag));
-        } else {
-            // Check if buffer has frequency
-            py::str buf_py = u32string_to_pystr(buffer);
-            int buf_freq = 0;
-            std::string buf_str = py::cast<std::string>(buf_py);
-            buf_freq = trie.search(buf_str);
-            if (buf_freq == -1) buf_freq = 0;
+        // Mixed buffer: split into blocks of Han, Alphanumeric, and Others
+        std::u32string current_block;
+        enum CharType { HAN, ALPHANUM, OTHER };
+        CharType last_type = OTHER;
 
-            if (!buf_freq) {  // No frequency found
-                if (is_number(buffer)) {
-                    buf_result.append(py::make_tuple(u32string_to_pystr(buffer), "m"));
-                } else if (is_english(buffer)) {
-                    buf_result.append(py::make_tuple(u32string_to_pystr(buffer), "eng"));
-                } else {
-                    // Use HMM to cut
-                    ViterbiResult viterbi_result = posseg_viterbi_impl(buffer);
-                    for (const auto& word_tag : viterbi_result.word_tags) {
-                        buf_result.append(py::make_tuple(u32string_to_pystr(word_tag.first), word_tag.second));
-                    }
+        auto get_type = [](char32_t ch) {
+            if (ch >= 0x4E00 && ch <= 0x9FD5) return HAN;
+            if ((ch >= U'a' && ch <= U'z') || (ch >= U'A' && ch <= U'Z') || (ch >= U'0' && ch <= U'9')) return ALPHANUM;
+            return OTHER;
+        };
+
+        auto flush_block = [&]() {
+            if (current_block.empty()) return;
+            std::string block_utf8 = u32_to_utf8(current_block);
+            if (last_type == HAN) {
+                ViterbiResult viterbi_result = posseg_viterbi_impl(current_block);
+                for (auto& word_tag : viterbi_result.word_tags) {
+                    result.append(std::move(word_tag));
                 }
-            } else {  // Has frequency - split into single chars
-                for (char32_t ch : buffer) {
-                    std::u32string ch_str(1, ch);
-                    std::string tag = get_tag(ch_str);
-                    buf_result.append(py::make_tuple(u32string_to_pystr(ch_str), tag));
-                }
+            } else if (last_type == ALPHANUM) {
+                if (is_english(current_block)) result.append(Pair(block_utf8, "eng"));
+                else result.append(Pair(block_utf8, "m"));
+            } else {
+                result.append(Pair(block_utf8, "x"));
             }
+            current_block.clear();
+        };
+
+        for (char32_t ch : buf_u32) {
+            CharType current_type = get_type(ch);
+            if (current_block.empty()) {
+                last_type = current_type;
+            } else if (current_type != last_type) {
+                flush_block();
+                last_type = current_type;
+            }
+            current_block += ch;
         }
-        return buf_result;
+        flush_block();
     };
 
     while (x < N) {
         size_t y = static_cast<size_t>(_route[x][1]) + 1;
-        std::u32string l_word = sentence.substr(x, y - x);
+        size_t start = offsets[x];
+        size_t len = offsets[y] - start;
+        std::string word(sentence.data() + start, len);
 
         if (y - x == 1) {
-            buf += l_word;
+            buf += word;
         } else {
-            if (!buf.empty()) {
-                py::list buf_pairs = process_buffer(buf);
-                for (auto item : buf_pairs) {
-                    result.append(item);
-                }
-                buf.clear();
-            }
-            std::string tag = get_tag(l_word);
-            result.append(py::make_tuple(u32string_to_pystr(l_word), tag));
+            if (!buf.empty()) { process_buffer(buf); buf.clear(); }
+            result.append(Pair(word, trie.get_tag(word)));
         }
         x = y;
     }
-
-    if (!buf.empty()) {
-        py::list buf_pairs = process_buffer(buf);
-        for (auto item : buf_pairs) {
-            result.append(item);
-        }
-    }
-
+    if (!buf.empty()) process_buffer(buf);
     return result;
 }
 
-
-// C++ implementation of posseg __cut_DAG_NO_HMM
+// Optimized posseg __cut_DAG_NO_HMM
 py::list _posseg_cut_DAG_NO_HMM_cpp(
     DatTrie& trie,
-    const std::u32string& sentence,
-    py::dict word_tag_tab,
+    const std::string& sentence,
     double total
 ) {
-    size_t N = sentence.length();
-    if (N == 0) {
-        return py::list();
-    }
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
+    if (N == 0) return py::list();
 
-    // Get DAG and route using the existing C++ function
-    std::vector<std::vector<py::ssize_t>> DAG(N);
+    std::vector<std::vector<size_t>> DAG(N);
     std::vector<std::array<double, 2>> _route(N + 1);
     double logtotal = log(total);
 
-    // Build DAG
-    for (size_t k = 0; k < N; ++k) {
-        py::ssize_t i = k;
-        while (i < static_cast<py::ssize_t>(N)) {
-            std::u32string frag = sentence.substr(k, i - k + 1);
-            py::str frag_py = u32string_to_pystr(frag);
-
-            bool found = false;
-            int freq = 0;
-
-            std::string frag_str = py::cast<std::string>(frag_py);
-            freq = trie.search(frag_str);
-            if (freq != -1) {
-                found = true;
-            }
-
-            if (!found) {
-                break;
-            }
-
-            if (freq > 0) {
-                DAG[k].push_back(i);
-            }
-            i++;
+    for(size_t k = 0; k < N; k++) {
+        for(size_t i = k; i < N; i++) {
+            size_t start = offsets[k];
+            size_t len = offsets[i + 1] - start;
+            std::string word(sentence.data() + start, len);
+            int freq = trie.search(word);
+            if (freq == -1) break;
+            if (freq > 0) DAG[k].push_back(i);
         }
-        if (DAG[k].empty()) {
-            DAG[k].push_back(k);
-        }
+        if(DAG[k].empty()) DAG[k].push_back(k);
     }
 
-    // Calculate route
-    _route[N][0] = 0;
-    _route[N][1] = 0;
-
-    for (py::ssize_t idx = N - 1; idx >= 0; --idx) {
+    _route[N][0] = 0.0;
+    for(int idx_signed = (int)N - 1; idx_signed >= 0 ; idx_signed--) {
+        size_t idx = (size_t)idx_signed;
         double max_freq_val = std::numeric_limits<double>::lowest();
-        py::ssize_t max_x_val = 0;
-
-        for (py::ssize_t x_val : DAG[idx]) {
-            std::u32string slice = sentence.substr(idx, x_val - idx + 1);
-            py::str slice_py = u32string_to_pystr(slice);
-
-            long fq_val = 1;
-            std::string slice_str = py::cast<std::string>(slice_py);
-            int freq = trie.search(slice_str);
-            if (freq != -1) {
-                fq_val = freq;
-            } else {
-                fq_val = 0;
-            }
-            if (fq_val == 0) fq_val = 1;
-
-            double fq_2_val = _route[x_val + 1][0];
-            double fq_last_val = log(static_cast<double>(fq_val)) - logtotal + fq_2_val;
-
-            if (fq_last_val >= max_freq_val) {
+        size_t max_x_val = 0;
+        for(size_t x_val : DAG[idx]) {
+            size_t start = offsets[idx];
+            size_t len = offsets[x_val + 1] - start;
+            std::string word(sentence.data() + start, len);
+            int fq_val = trie.search(word);
+            if (fq_val <= 0) fq_val = 1;
+            double fq_last_val = log(static_cast<double>(fq_val)) - logtotal + _route[x_val + 1][0];
+            if(fq_last_val >= max_freq_val) {
                 max_freq_val = fq_last_val;
                 max_x_val = x_val;
             }
         }
         _route[idx][0] = max_freq_val;
-        _route[idx][1] = static_cast<double>(max_x_val);
+        _route[idx][1] = (double)max_x_val;
     }
 
-    // Now process the route to generate pairs, mirroring Python's __cut_DAG_NO_HMM
     py::list result;
     size_t x = 0;
-    std::u32string buf;
-
-    auto get_tag_from_word_tag_tab = [&word_tag_tab](const std::u32string& word_u32) -> std::string {
-        py::str word_py = u32string_to_pystr(word_u32);
-        if (word_tag_tab.contains(word_py)) {
-            return py::cast<std::string>(word_tag_tab[word_py]);
-        }
-        return "x";
-    };
+    std::string buf;
 
     while (x < N) {
         size_t y = static_cast<size_t>(_route[x][1]) + 1;
-        std::u32string l_word_u32 = sentence.substr(x, y - x);
+        size_t start = offsets[x];
+        size_t len = offsets[y] - start;
+        std::string word(sentence.data() + start, len);
 
-        if (l_word_u32.length() == 1) {
-            char32_t ch = l_word_u32[0];
-            if ((ch >= U'a' && ch <= U'z') || (ch >= U'A' && ch <= U'Z') || (ch >= U'0' && ch <= U'9')) {
-                buf += l_word_u32;
+        if (y - x == 1) {
+            unsigned char c = static_cast<unsigned char>(word[0]);
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+                buf += word;
             } else {
-                if (!buf.empty()) {
-                    result.append(py::make_tuple(u32string_to_pystr(buf), "eng"));
-                    buf.clear();
-                }
-                result.append(py::make_tuple(u32string_to_pystr(l_word_u32), get_tag_from_word_tag_tab(l_word_u32)));
+                if (!buf.empty()) { result.append(Pair(buf, "eng")); buf.clear(); }
+                result.append(Pair(word, trie.get_tag(word)));
             }
-        } else { // l_word_u32.length() > 1
-            if (!buf.empty()) {
-                result.append(py::make_tuple(u32string_to_pystr(buf), "eng"));
-                buf.clear();
-            }
-            result.append(py::make_tuple(u32string_to_pystr(l_word_u32), get_tag_from_word_tag_tab(l_word_u32)));
+        } else {
+            if (!buf.empty()) { result.append(Pair(buf, "eng")); buf.clear(); }
+            result.append(Pair(word, trie.get_tag(word)));
         }
         x = y;
     }
 
-    if (!buf.empty()) {
-        result.append(py::make_tuple(u32string_to_pystr(buf), "eng"));
-    }
 
-    return result;
-}
+
+                    if (!buf.empty()) result.append(Pair(buf, "eng"));
+
+
+
+                    return result;
+
+
+
+                }
+
+
+
+
+
+
 
 
 
@@ -1492,34 +1622,610 @@ void _load_word_tag_pybind(const std::string& filename, py::dict word_tag_tab_py
 }
 
 
+// Optimized C++ implementation of __cut_DAG
+py::list _cut_DAG_cpp(
+    DatTrie& trie,
+    const std::string& sentence,
+    double total
+) {
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
+    if (N == 0) return py::list();
+
+    struct DAGNode {
+        size_t end_idx;
+        int freq;
+    };
+    std::vector<std::vector<DAGNode>> DAG(N);
+    std::vector<std::pair<double, size_t>> route(N + 1);
+    double logtotal = log(total);
+
+    // One pass to build DAG with frequencies
+    for (size_t k = 0; k < N; ++k) {
+        size_t start = offsets[k];
+        const char* ptr = sentence.data() + start;
+        size_t remain_len = sentence.size() - start;
+
+        // cedar's commonPrefixSearch
+        // We use a fixed-size buffer for results to avoid heap allocation
+        cedar::da<int>::result_pair_type results[64];
+        size_t num = trie.trie_ref().commonPrefixSearch<cedar::da<int>::result_pair_type>(
+            ptr, results, 64, remain_len
+        );
+
+        // Find which character index each prefix length corresponds to
+        size_t current_res_idx = 0;
+        for (size_t i = k; i < N && current_res_idx < num; ++i) {
+            size_t prefix_len = offsets[i + 1] - start;
+            if (prefix_len == results[current_res_idx].length) {
+                if (results[current_res_idx].value > 0) {
+                    DAG[k].push_back({i, results[current_res_idx].value});
+                }
+                current_res_idx++;
+            }
+        }
+
+        if (DAG[k].empty()) {
+            DAG[k].push_back({k, 1}); // Default freq 1 for single char
+        }
+    }
+
+    // Viterbi route calculation
+    route[N] = {0.0, 0};
+    for (int i = (int)N - 1; i >= 0; --i) {
+        double max_prob = -1e100;
+        size_t best_x = 0;
+        for (const auto& node : DAG[i]) {
+            double prob = log(node.freq > 0 ? node.freq : 1) - logtotal + route[node.end_idx + 1].first;
+            if (prob > max_prob) {
+                max_prob = prob;
+                best_x = node.end_idx;
+            }
+        }
+        route[i] = {max_prob, best_x};
+    }
+
+    // Output segmentation
+    py::list result;
+    size_t x = 0;
+    std::string buf;
+    size_t buf_char_count = 0;
+
+    auto process_buffer = [&]() {
+        if (buf.empty()) return;
+        if (buf_char_count == 1) {
+            result.append(buf);
+        } else {
+            if (trie.search(buf) <= 0) {
+                // Split buffer into Han and non-Han blocks
+                std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+                std::u32string buf_u32 = conv.from_bytes(buf);
+                std::u32string current_block;
+                bool is_han = false;
+
+                auto flush_sub_block = [&]() {
+                    if (current_block.empty()) return;
+                    if (is_han) {
+                        std::vector<std::string> words = finalseg_viterbi_internal(current_block);
+                        for (const auto& w : words) result.append(w);
+                    } else {
+                        // Further split non-Han block into alphanumeric and symbols
+                        std::u32string sub;
+                        bool is_alnum = false;
+                        auto flush_alnum = [&]() {
+                            if (sub.empty()) return;
+                            result.append(u32_to_utf8(sub));
+                            sub.clear();
+                        };
+
+                        for (char32_t ch : current_block) {
+                            bool ch_alnum = (ch >= U'a' && ch <= U'z') || (ch >= U'A' && ch <= U'Z') || (ch >= U'0' && ch <= U'9');
+                            if (sub.empty()) {
+                                is_alnum = ch_alnum;
+                            } else if (ch_alnum != is_alnum) {
+                                flush_alnum();
+                                is_alnum = ch_alnum;
+                            }
+                            sub += ch;
+                        }
+                        flush_alnum();
+                    }
+                    current_block.clear();
+                };
+
+                for (char32_t ch : buf_u32) {
+                    bool ch_is_han = (ch >= 0x4E00 && ch <= 0x9FD5);
+                    if (current_block.empty()) {
+                        is_han = ch_is_han;
+                    } else if (ch_is_han != is_han) {
+                        flush_sub_block();
+                        is_han = ch_is_han;
+                    }
+                    current_block += ch;
+                }
+                flush_sub_block();
+            } else {
+                std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+                std::u32string buf_u32 = conv.from_bytes(buf);
+                for (char32_t ch : buf_u32) {
+                    result.append(u32_to_utf8(std::u32string(1, ch)));
+                }
+            }
+        }
+        buf.clear();
+        buf_char_count = 0;
+    };
+
+    while (x < N) {
+        size_t y = route[x].second + 1;
+        size_t start = offsets[x];
+        size_t len = offsets[y] - start;
+        std::string word(sentence.data() + start, len);
+
+        if (y - x == 1) {
+            buf += word;
+            buf_char_count++;
+        } else {
+            process_buffer();
+            result.append(word);
+        }
+        x = y;
+    }
+    process_buffer();
+    return result;
+}
+
+// Optimized C++ implementation of __cut_DAG_NO_HMM
+py::list _cut_DAG_NO_HMM_cpp(
+    DatTrie& trie,
+    const std::string& sentence,
+    double total
+) {
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
+    if (N == 0) return py::list();
+
+    std::vector<std::pair<double, size_t>> route(N + 1);
+    double logtotal = log(total);
+
+    // Calculate route directly
+    route[N] = {0.0, 0};
+    for (int i = (int)N - 1; i >= 0; --i) {
+        double max_prob = -1e100;
+        size_t best_x = i;
+
+        size_t start = offsets[i];
+        const char* ptr = sentence.data() + start;
+        size_t remain_len = sentence.size() - start;
+
+        cedar::da<int>::result_pair_type results[64];
+        size_t num = trie.trie_ref().commonPrefixSearch<cedar::da<int>::result_pair_type>(
+            ptr, results, 64, remain_len
+        );
+
+        // Single character fallback probability
+        max_prob = log(1.0) - logtotal + route[i + 1].first;
+        best_x = i;
+
+        if (num > 0) {
+            size_t current_res_idx = 0;
+            for (size_t j = i; j < N && current_res_idx < num; ++j) {
+                size_t prefix_len = offsets[j + 1] - start;
+                if (prefix_len == results[current_res_idx].length) {
+                    int freq = results[current_res_idx].value;
+                    if (freq > 0) {
+                        double prob = log((double)freq) - logtotal + route[j + 1].first;
+                        if (prob > max_prob) {
+                            max_prob = prob;
+                            best_x = j;
+                        }
+                    }
+                    current_res_idx++;
+                }
+            }
+        }
+        route[i] = {max_prob, best_x};
+    }
+
+    py::list result;
+    size_t x = 0;
+    std::string buf;
+
+    while (x < N) {
+        size_t y = route[x].second + 1;
+        size_t start = offsets[x];
+        size_t len = offsets[y] - start;
+        std::string word(sentence.data() + start, len);
+
+        if (y - x == 1 && ((word[0] >= 'a' && word[0] <= 'z') || (word[0] >= 'A' && word[0] <= 'Z') || (word[0] >= '0' && word[0] <= '9'))) {
+            buf += word;
+        } else {
+            if (!buf.empty()) {
+                result.append(buf);
+                buf.clear();
+            }
+            result.append(word);
+        }
+        x = y;
+    }
+    if (!buf.empty()) result.append(buf);
+    return result;
+}
+
+// Helper to get next char32_t from UTF-8 string
+inline char32_t utf8_next_char(const char*& p, const char* end) {
+    if (p >= end) return 0;
+    unsigned char c = static_cast<unsigned char>(*p++);
+    if (c < 0x80) return c;
+    if ((c & 0xE0) == 0xC0) {
+        if (p >= end) return c;
+        char32_t res = (c & 0x1F) << 6;
+        res |= (*p++ & 0x3F);
+        return res;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        if (p + 1 >= end) return c;
+        char32_t res = (c & 0x0F) << 12;
+        res |= (*p++ & 0x3F) << 6;
+        res |= (*p++ & 0x3F);
+        return res;
+    }
+    if ((c & 0xF8) == 0xF0) {
+        if (p + 2 >= end) return c;
+        char32_t res = (c & 0x07) << 18;
+        res |= (*p++ & 0x3F) << 12;
+        res |= (*p++ & 0x3F) << 6;
+        res |= (*p++ & 0x3F);
+        return res;
+    }
+    return c;
+}
+
+inline bool is_han_alnum_fast(char32_t ch) {
+    return (ch >= 0x4E00 && ch <= 0x9FD5) ||
+           (ch >= U'a' && ch <= U'z') ||
+           (ch >= U'A' && ch <= U'Z') ||
+           (ch >= U'0' && ch <= U'9') ||
+           ch == U'+' || ch == U'#' || ch == U'&' || ch == U'.' || ch == U'_' || ch == U'-' || ch == U'%';
+}
+
+inline bool is_eng_fast(char32_t ch) {
+    return (ch >= U'a' && ch <= U'z') || (ch >= U'A' && ch <= U'Z') || (ch >= U'0' && ch <= U'9');
+}
+
+// Global internal cut dispatcher in C++ to avoid Python loop overhead
+py::list _cut_internal_cpp(
+    DatTrie& trie,
+    const std::string& sentence,
+    double total,
+    bool HMM
+) {
+    py::list result;
+    const char* p = sentence.data();
+    const char* end = p + sentence.size();
+    const char* block_start = nullptr;
+
+    while (p < end) {
+        const char* current_p = p;
+        char32_t ch = utf8_next_char(p, end);
+        if (is_han_alnum_fast(ch)) {
+            if (!block_start) block_start = current_p;
+        } else {
+            if (block_start) {
+                std::string block(block_start, current_p - block_start);
+                py::list words = HMM ? _cut_DAG_cpp(trie, block, total) : _cut_DAG_NO_HMM_cpp(trie, block, total);
+                for (auto w : words) result.append(w);
+                block_start = nullptr;
+            }
+            // Handle separators (re_skip)
+            result.append(std::string(current_p, p - current_p));
+        }
+    }
+    if (block_start) {
+        std::string block(block_start, end - block_start);
+        py::list words = HMM ? _cut_DAG_cpp(trie, block, total) : _cut_DAG_NO_HMM_cpp(trie, block, total);
+        for (auto w : words) result.append(w);
+    }
+    return result;
+}
+
+// Helper for cut_all to process a block
+void _cut_all_block(
+    DatTrie& trie,
+    const std::string& sentence,
+    py::list& result
+) {
+    const std::vector<size_t> offsets = get_utf8_offsets(sentence);
+    const size_t N = offsets.size() - 1;
+    if (N == 0) return;
+
+    std::vector<std::vector<size_t>> DAG(N);
+    for (size_t k = 0; k < N; k++) {
+        size_t start = offsets[k];
+        const char* ptr = sentence.data() + start;
+        size_t remain_len = sentence.size() - start;
+
+        cedar::da<int>::result_pair_type results[64];
+        size_t num = trie.trie_ref().commonPrefixSearch<cedar::da<int>::result_pair_type>(
+            ptr, results, 64, remain_len
+        );
+
+        if (num > 0) {
+            for (size_t i = 0; i < num; ++i) {
+                if (results[i].value > 0) {
+                    size_t match_len = results[i].length;
+                    for (size_t j = k; j < N; ++j) {
+                        if (offsets[j+1] - start == match_len) {
+                            DAG[k].push_back(j);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (DAG[k].empty()) DAG[k].push_back(k);
+    }
+
+    int old_j = -1;
+    int eng_scan = 0;
+    std::string eng_buf = "";
+
+    for (size_t k = 0; k < N; k++) {
+        const auto& L = DAG[k];
+
+        // Character at k
+        size_t start_k = offsets[k];
+        size_t len_k = offsets[k+1] - start_k;
+        std::string char_k = sentence.substr(start_k, len_k);
+
+        // Check if char_k is english (only if it's 1 byte or specific ASCII)
+        bool is_eng = (char_k.size() == 1 && ((char_k[0] >= 'a' && char_k[0] <= 'z') || (char_k[0] >= 'A' && char_k[0] <= 'Z') || (char_k[0] >= '0' && char_k[0] <= '9')));
+
+        if (eng_scan == 1 && !is_eng) {
+            eng_scan = 0;
+            result.append(eng_buf);
+            eng_buf = "";
+        }
+
+        if (L.size() == 1 && (int)k > old_j) {
+            size_t start = offsets[k];
+            size_t len = offsets[L[0] + 1] - start;
+            std::string word = sentence.substr(start, len);
+
+            if (is_eng && word.size() == len_k) { // Single english character
+                if (eng_scan == 0) {
+                    eng_scan = 1;
+                    eng_buf = word;
+                } else {
+                    eng_buf += word;
+                }
+            } else {
+                if (eng_scan == 0) {
+                    result.append(word);
+                }
+            }
+            old_j = (int)L[0];
+        } else {
+            for (size_t j : L) {
+                if (j > k) {
+                    size_t start = offsets[k];
+                    size_t len = offsets[j + 1] - start;
+                    result.append(sentence.substr(start, len));
+                    old_j = (int)j;
+                }
+            }
+        }
+    }
+    if (eng_scan == 1) result.append(eng_buf);
+}
+
+// Optimized C++ implementation of cut_all with block splitting
+py::list _cut_all_internal_cpp(
+    DatTrie& trie,
+    const std::string& sentence
+) {
+    py::list result;
+    const char* p = sentence.data();
+    const char* end = p + sentence.size();
+    const char* block_start = nullptr;
+    bool last_is_han_alnum = false;
+
+    while (p < end) {
+        const char* current_p = p;
+        char32_t ch = utf8_next_char(p, end);
+        bool is_han_alnum = is_han_alnum_fast(ch);
+
+        if (block_start == nullptr) {
+            block_start = current_p;
+            last_is_han_alnum = is_han_alnum;
+        } else if (is_han_alnum != last_is_han_alnum) {
+            std::string block(block_start, current_p - block_start);
+            if (last_is_han_alnum) {
+                _cut_all_block(trie, block, result);
+            } else {
+                // Non-han-alnum block: split by whitespace
+                const char* sp = block.data();
+                const char* send = sp + block.size();
+                const char* s_start = nullptr;
+                while (sp < send) {
+                    const char* cur_sp = sp;
+                    char32_t sch = utf8_next_char(sp, send);
+                    bool is_space = (sch == U' ' || sch == U'\t' || sch == U'\r' || sch == U'\n' || sch == 0x3000);
+                    if (is_space) {
+                        if (s_start) {
+                            result.append(std::string(s_start, cur_sp - s_start));
+                            s_start = nullptr;
+                        }
+                    } else {
+                        if (!s_start) s_start = cur_sp;
+                    }
+                }
+                if (s_start) result.append(std::string(s_start, send - s_start));
+            }
+            block_start = current_p;
+            last_is_han_alnum = is_han_alnum;
+        }
+    }
+    if (block_start) {
+        std::string block(block_start, end - block_start);
+        if (last_is_han_alnum) {
+            _cut_all_block(trie, block, result);
+        } else {
+            const char* sp = block.data();
+            const char* send = sp + block.size();
+            const char* s_start = nullptr;
+            while (sp < send) {
+                const char* cur_sp = sp;
+                char32_t sch = utf8_next_char(sp, send);
+                bool is_space = (sch == U' ' || sch == U'\t' || sch == U'\r' || sch == U'\n' || sch == 0x3000);
+                if (is_space) {
+                    if (s_start) {
+                        result.append(std::string(s_start, cur_sp - s_start));
+                        s_start = nullptr;
+                    }
+                } else {
+                    if (!s_start) s_start = cur_sp;
+                }
+            }
+            if (s_start) result.append(std::string(s_start, send - s_start));
+        }
+    }
+    return result;
+}
+
+// C++ implementation of cut_for_search
+py::list _cut_for_search_internal_cpp(
+    DatTrie& trie,
+    const std::string& sentence,
+    double total,
+    bool HMM
+) {
+    py::list words = _cut_internal_cpp(trie, sentence, total, HMM);
+    py::list result;
+
+    for (auto w_handle : words) {
+        std::string w = w_handle.cast<std::string>();
+        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+        std::u32string w_u32 = conv.from_bytes(w);
+        size_t w_len = w_u32.length();
+
+        if (w_len > 2) {
+            for (size_t i = 0; i < w_len - 1; i++) {
+                std::u32string gram2_u32 = w_u32.substr(i, 2);
+                std::string gram2 = conv.to_bytes(gram2_u32);
+                if (trie.search(gram2) > 0) result.append(gram2);
+            }
+        }
+        if (w_len > 3) {
+            for (size_t i = 0; i < w_len - 2; i++) {
+                std::u32string gram3_u32 = w_u32.substr(i, 3);
+                std::string gram3 = conv.to_bytes(gram3_u32);
+                if (trie.search(gram3) > 0) result.append(gram3);
+            }
+        }
+        result.append(w);
+    }
+    return result;
+}
+
+py::list _posseg_cut_internal_cpp(
+    DatTrie& trie,
+    const std::string& sentence,
+    double total,
+    bool HMM
+) {
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+    std::u32string sentence_u32 = conv.from_bytes(sentence);
+    py::list result;
+
+    std::u32string block;
+    for (char32_t ch : sentence_u32) {
+        bool is_han_alnum = (ch >= 0x4E00 && ch <= 0x9FD5) ||
+                            (ch >= U'a' && ch <= U'z') ||
+                            (ch >= U'A' && ch <= U'Z') ||
+                            (ch >= U'0' && ch <= U'9') ||
+                            ch == U'+' || ch == U'#' || ch == U'&' || ch == U'.' || ch == U'_';
+
+        if (is_han_alnum) {
+            block += ch;
+        } else {
+            if (!block.empty()) {
+                std::string block_utf8 = conv.to_bytes(block);
+                py::list words = HMM ? _posseg_cut_DAG_cpp(trie, block_utf8, total) : _posseg_cut_DAG_NO_HMM_cpp(trie, block_utf8, total);
+                for (auto w : words) result.append(w);
+                block.clear();
+            }
+            std::string ch_utf8 = conv.to_bytes(std::u32string(1, ch));
+            result.append(Pair(ch_utf8, "x"));
+        }
+    }
+    if (!block.empty()) {
+        std::string block_utf8 = conv.to_bytes(block);
+        py::list words = HMM ? _posseg_cut_DAG_cpp(trie, block_utf8, total) : _posseg_cut_DAG_NO_HMM_cpp(trie, block_utf8, total);
+        for (auto w : words) result.append(w);
+    }
+    return result;
+}
+
 PYBIND11_MODULE(_jieba_fast_dat_functions_py3, m) {
     m.doc() = "pybind11 plugin for jieba_fast_dat C functions";
+
+    py::class_<Pair>(m, "pair")
+        .def(py::init<std::string, std::string>())
+        .def_readwrite("word", &Pair::word)
+        .def_readwrite("flag", &Pair::flag)
+        .def("__str__", &Pair::toString)
+        .def("__repr__", &Pair::repr)
+        .def("__lt__", &Pair::operator<)
+        .def("__eq__", &Pair::operator==)
+        .def("__iter__", [](const Pair& p) {
+            return py::make_iterator(&p.word, (&p.flag) + 1);
+        }, py::keep_alive<0, 1>())
+        .def(py::pickle(
+            [](const Pair& p) { // __getstate__
+                return py::make_tuple(p.word, p.flag);
+            },
+            [](py::tuple t) { // __setstate__
+                if (t.size() != 2)
+                    throw std::runtime_error("Invalid state!");
+                return Pair(t[0].cast<std::string>(), t[1].cast<std::string>());
+            }
+        ));
 
     py::class_<DatTrie>(m, "DatTrie")
         .def(py::init<>())
         .def("build", static_cast<double (DatTrie::*)(py::iterable)>(&DatTrie::build), py::arg("word_freqs_iterable"), "Builds the DatTrie from an iterable of (word, freq) pairs and returns the total frequency.")
         .def("clear", &DatTrie::clear)
-        .def("search", static_cast<int (DatTrie::*)(const std::string&)>(&DatTrie::search), py::arg("word"))
+        .def("search", static_cast<int (DatTrie::*)(const std::string&) const>(&DatTrie::search), py::arg("word"))
         .def("open", &_get_trie_pybind, py::arg("filename"), py::arg("offset") = 0)
         .def("save", &DatTrie::save, py::arg("filename"))
+        .def("save_to_bytes", &DatTrie::save_to_bytes, "Saves the DatTrie to a byte string.")
+        .def("load_from_bytes", &DatTrie::load_from_bytes, py::arg("data"), "Loads the DatTrie from a byte string.")
         .def("num_keys", &DatTrie::num_keys)
         .def("extract_words", &DatTrie::extract_words, py::arg("words_with_freqs"))
-        .def("add_word", &DatTrie::add_word, py::arg("word"), py::arg("freq"), "Adds a word to the DatTrie with a given frequency.")
-        .def("del_word", &DatTrie::del_word, py::arg("word"), "Deletes a word from the DatTrie.")
-        .def("load_from_file_and_build", &DatTrie::load_from_file_and_build,
-             py::arg("filename"), py::arg("user_word_tag_tab_py"),
-             "Loads dictionary from file, builds DatTrie and generates prefixes, updates user_word_tag_tab, and returns total frequency in C++.");
+        .def("update_word_tag_tab", &DatTrie::update_word_tag_tab, py::arg("new_tab"), "Updates the word-tag tab from a Python dict.")
+        .def("add_word", &DatTrie::add_word, py::arg("word"), py::arg("freq"), py::arg("tag") = "x", "Adds a word to the DatTrie with a given frequency.")
+        .def("del_word", &DatTrie::del_word, py::arg("word"), "Deletes a word from the DatTrie.");
 
     m.def("_viterbi", &_viterbi_pybind,
           py::arg("obs"), py::arg("_states_py"), py::arg("start_p"), py::arg("trans_p"), py::arg("emip_p"));
 
     m.def("_calc", &_calc_pybind,
-          py::arg("trie"), py::arg("sentence"), py::arg("DAG"), py::arg("route"), py::arg("total_obj"));
+          py::arg("trie"), py::arg("sentence"), py::arg("DAG"), py::arg("route"), py::arg("total"));
+
+    m.def("load_main_dict_from_path_pybind", &load_main_dict_from_path_pybind,
+          py::arg("trie"), py::arg("filename"), py::arg("main_word_tag_tab"),
+          "Loads the main dictionary from a file, builds the DatTrie and populates the word-tag tab.");
 
     m.def("load_hmm_model", &load_hmm_model,
           py::arg("start_p_dict"), py::arg("trans_p_dict"), py::arg("emit_p_dict"), py::arg("char_state_tab_p_dict"));
 
+    m.def("load_finalseg_hmm_model", &load_finalseg_hmm_model,
+          py::arg("start_p_dict"), py::arg("trans_p_dict"), py::arg("emit_p_dict"));
+
     m.def("_posseg_viterbi_cpp", &_posseg_viterbi_cpp, py::arg("obs"));
+
+    m.def("_finalseg_viterbi_cpp", &_finalseg_viterbi_cpp, py::arg("obs"));
 
     m.def("_get_DAG_and_calc", &_get_DAG_and_calc_pybind,
           py::arg("trie"), py::arg("sentence"), py::arg("route"), py::arg("total"));
@@ -1532,14 +2238,37 @@ PYBIND11_MODULE(_jieba_fast_dat_functions_py3, m) {
 
     m.def("_posseg_cut_DAG_cpp", &_posseg_cut_DAG_cpp,
           py::arg("trie"), py::arg("sentence"),
-          py::arg("word_tag_tab"), py::arg("total"));
+          py::arg("total"));
 
     m.def("_posseg_cut_DAG_NO_HMM_cpp", &_posseg_cut_DAG_NO_HMM_cpp,
           py::arg("trie"), py::arg("sentence"),
-          py::arg("word_tag_tab"), py::arg("total"));
+          py::arg("total"));
 
-    m.def("load_userdict_pybind", &load_userdict_pybind,
-          py::arg("trie"), py::arg("dict_lines"),
+    m.def("_cut_internal_cpp", &_cut_internal_cpp,
+          py::arg("trie"), py::arg("sentence"),
+          py::arg("total"), py::arg("HMM"));
+
+    m.def("_posseg_cut_internal_cpp", &_posseg_cut_internal_cpp,
+          py::arg("trie"), py::arg("sentence"),
+          py::arg("total"), py::arg("HMM"));
+
+    m.def("_cut_all_internal_cpp", &_cut_all_internal_cpp,
+          py::arg("trie"), py::arg("sentence"));
+
+    m.def("_cut_for_search_internal_cpp", &_cut_for_search_internal_cpp,
+          py::arg("trie"), py::arg("sentence"),
+          py::arg("total"), py::arg("HMM"));
+
+    m.def("_cut_DAG_cpp", &_cut_DAG_cpp,
+          py::arg("trie"), py::arg("sentence"),
+          py::arg("total"));
+
+    m.def("_cut_DAG_NO_HMM_cpp", &_cut_DAG_NO_HMM_cpp,
+          py::arg("trie"), py::arg("sentence"),
+          py::arg("total"));
+
+    m.def("load_userdict_pybind", &load_userdict_from_path_pybind,
+          py::arg("trie"), py::arg("filename"),
           py::arg("user_word_tag_tab"), py::arg("batch_add_force_split_func"));
 
     m.def("_load_word_tag_pybind", &_load_word_tag_pybind,

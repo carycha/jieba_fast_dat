@@ -14,19 +14,24 @@ PROB_EMIT_P = "prob_emit.p"
 PrevStatus = {"B": "ES", "M": "MB", "S": "SE", "E": "BM"}
 Force_Split_Words: set[str] = set()
 
-
-def load_model() -> tuple[
-    dict[str, float],
-    dict[str, dict[str, float]],
-    dict[str, dict[str, float]],
-]:
-    start_p = pickle.load(get_module_res(__name__, PROB_START_P))
-    trans_p = pickle.load(get_module_res(__name__, PROB_TRANS_P))
-    emit_p = pickle.load(get_module_res(__name__, PROB_EMIT_P))
-    return start_p, trans_p, emit_p
+_initialized = False
+start_P: dict[str, float] = {}
+trans_P: dict[str, dict[str, float]] = {}
+emit_P: dict[str, dict[str, float]] = {}
 
 
-start_P, trans_P, emit_P = load_model()
+def load_model() -> None:
+    global _initialized, start_P, trans_P, emit_P
+    if _initialized:
+        return
+    start_P = pickle.loads(get_module_res(__name__, PROB_START_P).read())
+    trans_P = pickle.loads(get_module_res(__name__, PROB_TRANS_P).read())
+    emit_P = pickle.loads(get_module_res(__name__, PROB_EMIT_P).read())
+
+    # Push models to C++
+    _jieba_fast_dat_functions.load_finalseg_hmm_model(start_P, trans_P, emit_P)
+
+    _initialized = True
 
 
 def viterbi(
@@ -36,32 +41,16 @@ def viterbi(
     trans_p: dict[str, dict[str, float]],
     emit_p: dict[str, dict[str, float]],
 ) -> tuple[float, list[str]]:
-    V = [{}]
-    path: dict[str, list[str]] = {}
-    for y in states:
-        V[0][y] = start_p[y] + emit_p[y].get(obs[0], MIN_FLOAT)
-        path[y] = [y]
-    for t in range(1, len(obs)):
-        V.append({})
-        newpath: dict[str, list[str]] = {}
-        for y in states:
-            em_p = emit_p[y].get(obs[t], MIN_FLOAT)
-            (prob, state) = max(
-                (V[t - 1][y0] + trans_p[y0].get(y, MIN_FLOAT) + em_p, y0)
-                for y0 in PrevStatus[y]
-            )
-            V[t][y] = prob
-            newpath[y] = path[state] + [y]
-        path = newpath
-    (prob, state) = max((V[len(obs) - 1][y], y) for y in "ES")
-    return (prob, path[state])
+    # Fallback to C++ implementation for better performance
+    prob, pos_list = _jieba_fast_dat_functions._finalseg_viterbi_cpp(obs)
+    return prob, list(pos_list)
 
 
 def __cut(sentence: str) -> Iterator[str]:
-    global emit_P
-    prob, pos_list = _jieba_fast_dat_functions._viterbi(
-        sentence, "BMES", start_P, trans_P, emit_P
-    )
+    global start_P, trans_P, emit_P
+    if not _initialized:
+        load_model()
+    prob, pos_list = _jieba_fast_dat_functions._finalseg_viterbi_cpp(sentence)
     words = []
     begin, nexti = 0, 0
     for i, char in enumerate(sentence):

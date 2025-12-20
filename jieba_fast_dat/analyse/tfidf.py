@@ -148,22 +148,20 @@ class TFIDF(KeywordExtractor):
         freq: defaultdict[Any, float] = defaultdict(float)
         for w in words:
             if allowPOS:
-                if (
-                    not isinstance(w, jieba_fast_dat.posseg.pair)
-                    or w.flag not in allowPOS
-                ):
-                    continue
-                elif not withFlag:
-                    word_to_count = w.word
+                if isinstance(w, jieba_fast_dat.posseg.pair):
+                    if w.flag not in allowPOS:  # type: ignore
+                        continue
+                    word_to_count = w if withFlag else w.word  # type: ignore
                 else:
-                    word_to_count = w
+                    # Should not happen if postokenizer is used correctly
+                    continue
             else:
                 word_to_count = w
 
             if isinstance(word_to_count, jieba_fast_dat.posseg.pair):
-                word_str = word_to_count.word
+                word_str = word_to_count.word  # type: ignore
             else:
-                word_str = word_to_count
+                word_str = word_to_count  # type: ignore
 
             if len(word_str.strip()) < 2 or word_str.lower() in self.stop_words:
                 continue

@@ -443,6 +443,41 @@ namespace cedar {
 #endif
       return 0;
     }
+
+    int save_to_memory (char** data, size_t* data_size) const {
+      size_t length = static_cast <size_t> (*_length);
+      size_t size = static_cast <size_t> (_size);
+      *data_size = length + sizeof (node) * size;
+      *data = static_cast <char*> (std::malloc (*data_size));
+      if (! *data) return -1;
+      std::memcpy (*data, _tail, length);
+      std::memcpy (*data + length, _array, sizeof (node) * size);
+      return 0;
+    }
+
+    int open_from_memory (const char* data, size_t data_size) {
+      if (data_size < sizeof (int)) return -1;
+      int length_val;
+      std::memcpy (&length_val, data, sizeof (int));
+      size_t length = static_cast <size_t> (length_val);
+      if (data_size < length) return -1;
+      size_t size = (data_size - length) / sizeof (node);
+      clear (false);
+      _array = static_cast <node*> (std::malloc (sizeof (node) * size));
+      _tail = static_cast <char*> (std::malloc (length));
+      _tail0 = static_cast <int*> (std::malloc (sizeof (int)));
+      if (! _array || ! _tail || ! _tail0) return -1;
+      std::memcpy (_tail, data, length);
+      std::memcpy (_array, data + length, sizeof (node) * size);
+      _size = static_cast <int> (size);
+      _capacity = _size;
+      _length = reinterpret_cast <int*> (_tail);
+      _length0 = _tail0;
+      *_length0 = 0;
+      _quota = *_length;
+      _quota0 = 1;
+      return 0;
+    }
 #ifndef USE_FAST_LOAD
     void restore () { // restore information to update
       if (! _block) _restore_block ();
@@ -490,11 +525,11 @@ namespace cedar {
     const void* array () const { return _array; }
     void clear (const bool reuse = true) {
       if (_no_delete) _array = 0, _tail = 0;
-      if (_array) std::free (_array); _array = 0;
-      if (_tail)  std::free (_tail);  _tail  = 0;
-      if (_tail0) std::free (_tail0); _tail0 = 0;
-      if (_ninfo) std::free (_ninfo); _ninfo = 0;
-      if (_block) std::free (_block); _block = 0;
+      if (_array) { std::free (_array); _array = 0; }
+      if (_tail) { std::free (_tail); _tail = 0; }
+      if (_tail0) { std::free (_tail0); _tail0 = 0; }
+      if (_ninfo) { std::free (_ninfo); _ninfo = 0; }
+      if (_block) { std::free (_block); _block = 0; }
       _bheadF = _bheadC = _bheadO = _capacity = _size = _quota = _quota0 = 0;
       if (reuse) _initialize ();
       _no_delete = false;

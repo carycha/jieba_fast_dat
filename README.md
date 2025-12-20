@@ -13,12 +13,10 @@
 *   **繁體強化**: 將預設的系統字典與 idf 均直接改用 `jieba` 原廠提供的繁體優化字典, 無須額外修改設定
 
 ## 重大差異：為了極速，我們做出一個取捨
-
-* **不支援動態增加字典**：為了實現 DAT 結構的極速查詢和持久化快取，我們移除了運行時動態增加字典的功能。
-    > ** 替代方案：** 您只需將新字典加入字典檔，重新啟動程式，**快取將自動更新**，依然享受極速！
 * **Python 版本限制**：我們擁抱現代開發！僅支持 **Python >= 3.10**。
 
 ## changelog
+- 20251221 優化使用者字典載入, 調整整體結構更多轉入c++ , 修復 IO 邏輯, 再次提昇效能, upgrade version to 0.57
 - 20251204 強化cedar, 增加自定義字典cache機制, upgrade version to 0.56
 - 20251124 整體大幅重構, 確保結果與原生jieba相同, 修復字典錯誤, upgrade version to 0.55
 - 20251106 add pypi install version 0.54
@@ -26,18 +24,24 @@
 - 20251102 增加 memory-leak 測試以避免 python, c++ memory leak
 - 20251102 重翻 c++程式, 移除無效程式, 優化 dat 效能
 
-## 數字會說話：字典載入速度 **94.83%** 的巨大提升！
+## 數字會說話：最高 **87 倍速** 的極致效能！
 
-我們用一個包含 **130 萬筆資料**的超大型字典進行了對比。結果顯示：不論是第一次init還是在第二次使用快取時，我們的提升幅度是**巨大**！
+我們使用大型繁體字典（包含 **130 萬筆資料**）進行了深度效能對比。結果顯示，`jieba_fast_dat` 在各項指標上均徹底超越了原始 `jieba`。
 
-|| 初次 init 花費時間 | cached 花費時間|cache 提昇速度%|
-|---|---|---|---|
-|jieba_fast| 6.00 s| 4.76 s| 20.69% |
-|**jieba_fast_dat**| **1.58 s**| **0.25 s**| **84.48%** |
-|dat 提昇速度% | **73.59%** | **94.83%** | |
+### 效能對比數據 (Final Summary: Performance Comparison)
 
-## 介紹影片
-[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/nmaEbAAgpno/0.jpg)](https://www.youtube.com/watch?v=nmaEbAAgpno)
+| 評測項目 (Metric) | 原生 Jieba | **jieba_fast_dat** | **加速倍率 (Speedup)** |
+| :--- | :---: | :---: | :---: |
+| **主字典載入 (Cold Init)** | 4.022 s | **3.249 s** | **1.24x** |
+| **主字典載入 (With Cache)** | 2.976 s | **0.763 s** | **3.90x** |
+| **HMM 模型載入 (Import Load)** | 0.663 s | **0.013 s** | **49.18x** |
+| **自定義字典載入 (No Cache)** | 5.962 s | **3.408 s** | **1.75x** |
+| **自定義字典載入 (With Cache)** | 5.962 s | **0.324 s** | **18.38x** |
+| **分詞速度 (HMM=False)** | 0.906 s | **0.011 s** | **78.51x** |
+| **分詞速度 (HMM=True)** | 0.905 s | **0.021 s** | **42.32x** |
+| **詞性標注 (HMM=True)** | 1.159 s | **0.111 s** | **10.38x** |
+
+> *測試環境：Linux, Python 3.12, 採用 130 萬詞大型繁體字典進行百萬級別數據測試。*
 
 
 ## 🚀 安裝
@@ -52,7 +56,7 @@ pip install git+https://github.com/carycha/jieba_fast_dat
 ```
 github 安裝指定版號
 ```bash
-pip install git+https://github.com/carycha/jieba_fast_dat@0.55
+pip install git+https://github.com/carycha/jieba_fast_dat@0.57
 ```
 
 ## 🛠️ 使用方式
