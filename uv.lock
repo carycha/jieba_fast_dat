@@ -509,7 +509,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/c6/cb/18eeb235f833b7265
 
 [[package]]
 name = "jieba-fast-dat"
-version = "0.57"
+version = "0.58"
 source = { editable = "." }
 
 [package.optional-dependencies]

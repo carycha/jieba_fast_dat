@@ -14,15 +14,15 @@
 
 ## 重大差異：為了極速，我們做出一個取捨
 * **Python 版本限制**：我們擁抱現代開發！僅支持 **Python >= 3.10**。
+* **linux only**: 不再支援 windows 降低維護複雜度
 
 ## changelog
+- **pypi 累積安裝次數: 1.43k(20251222)**
+- 20251222 優化快取結構, refactor c++, 大幅提昇效能, upgrade version to 0.58
 - 20251221 優化使用者字典載入, 調整整體結構更多轉入c++ , 修復 IO 邏輯, 再次提昇效能, upgrade version to 0.57
 - 20251204 強化cedar, 增加自定義字典cache機制, upgrade version to 0.56
 - 20251124 整體大幅重構, 確保結果與原生jieba相同, 修復字典錯誤, upgrade version to 0.55
-- 20251106 add pypi install version 0.54
 - 20251106 [0.54] 核心分詞引擎重構，將 Viterbi 完整遷移至 C++ 實現，執行效能大幅提升，並升級至 C++17 標準。
-- 20251102 增加 memory-leak 測試以避免 python, c++ memory leak
-- 20251102 重翻 c++程式, 移除無效程式, 優化 dat 效能
 
 ## 數字會說話：最高 **62 倍速** 的極致效能！
 
@@ -32,17 +32,17 @@
 
 | 評測項目 (Metric) | 原生 Jieba | **jieba_fast_dat** | **加速倍率 (Speedup)** |
 | :--- | :---: | :---: | :---: |
-| **主字典載入 (Cold Init)** | 2.262 s | **1.923 s** | **1.18x** |
-| **主字典載入 (With Cache)** | 1.692 s | **0.450 s** | **3.76x** |
-| **HMM 模型載入 (Import Load)** | 0.302 s | **0.048 s** | **6.30x** |
-| **自定義字典載入 (No Cache)** | 3.625 s | **1.970 s** | **1.84x** |
-| **自定義字典載入 (With Cache)** | 3.642 s | **0.167 s** | **21.81x** |
-| **分詞速度 (HMM=False)** | 0.541 s | **0.009 s** | **62.03x** |
-| **詞性標注 (HMM=False)** | 0.627 s | **0.236 s** | **2.66x** |
-| **分詞速度 (HMM=True)** | 0.583 s | **0.016 s** | **35.62x** |
-| **詞性標注 (HMM=True)** | 0.707 s | **0.048 s** | **14.66x** |
+| **主字典載入 (Cold Init)** | 2.579 s | **1.035 s** | **2.49x** |
+| **主字典載入 (With Cache)** | 1.847 s | **0.021 s** | **86.07x** |
+| **HMM 模型載入 (Import Load)** | 0.110 s | **0.062 s** | **1.78x** |
+| **自定義字典載入 (No Cache)** | 4.508 s | **1.591 s** | **2.83x** |
+| **自定義字典載入 (With Cache)** | 5.592 s | **0.011 s** | **515.88x** |
+| **分詞速度 (HMM=False)** | 0.843 s | **0.014 s** | **61.27x** |
+| **詞性標注 (HMM=False)** | 0.909 s | **0.036 s** | **24.99x** |
+| **分詞速度 (HMM=True)** | 0.962 s | **0.015 s** | **62.93x** |
+| **詞性標注 (HMM=True)** | 1.013 s | **0.040 s** | **25.33x** |
 
-> *測試環境：Linux, Python 3.12, 採用 130 萬詞大型繁體字典進行百萬級別數據測試。*
+> *測試環境：Linux, Python 3.12, 採用大型繁體字典進行測試，分詞/標註數據為多次執行之總和時間。*
 
 
 ## 🚀 安裝
@@ -57,7 +57,7 @@ pip install git+https://github.com/carycha/jieba_fast_dat
 ```
 github 安裝指定版號
 ```bash
-pip install git+https://github.com/carycha/jieba_fast_dat@0.57
+pip install git+https://github.com/carycha/jieba_fast_dat@0.58
 ```
 
 ## 🛠️ 使用方式

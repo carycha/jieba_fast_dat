@@ -1,6 +1,7 @@
-import sys
+from __future__ import annotations
+
 from collections import defaultdict
-from collections.abc import Hashable
+from collections.abc import Collection, Hashable
 from operator import itemgetter
 from typing import Any
 
@@ -10,97 +11,100 @@ from .tfidf import KeywordExtractor
 
 
 class UndirectWeightedGraph:
-    d = 0.85
+    """Undirected weighted graph for TextRank algorithm."""
+
+    d: float = 0.85
 
     def __init__(self) -> None:
-        self.graph = defaultdict(list)
+        self.graph: dict[Hashable, list[tuple[Hashable, Hashable, float]]] = (
+            defaultdict(list)
+        )
 
-    def addEdge(self, start: Hashable, end: Hashable, weight: float) -> None:
-        # use a tuple (start, end, weight) instead of a Edge object
+    def add_edge(self, start: Hashable, end: Hashable, weight: float) -> None:
+        """Add an undirected edge with weight."""
         self.graph[start].append((start, end, weight))
         self.graph[end].append((end, start, weight))
 
+    addEdge = add_edge  # Legacy alias
+
     def rank(self) -> dict[Any, float]:
+        """Run the PageRank-like ranking algorithm."""
         ws = defaultdict(float)
-        outSum = defaultdict(float)
+        out_sum = defaultdict(float)
 
         wsdef = 1.0 / (len(self.graph) or 1.0)
         for n, out in self.graph.items():
             ws[n] = wsdef
-            outSum[n] = sum((e[2] for e in out), 0.0)
+            out_sum[n] = sum((e[2] for e in out), 0.0)
 
-        # this line for build stable iteration
-        sorted_keys = sorted(self.graph.keys())
+        # Build stable iteration
+        sorted_keys = sorted(self.graph.keys())  # type: ignore[type-var]
         for _x in range(10):  # 10 iters
             for n in sorted_keys:
-                s = 0
-                for e in self.graph[n]:
-                    s += e[2] / outSum[e[1]] * ws[e[1]]
+                s = sum(e[2] / out_sum[e[1]] * ws[e[1]] for e in self.graph[n])
                 ws[n] = (1 - self.d) + self.d * s
 
-        (min_rank, max_rank) = (sys.float_info[0], sys.float_info[3])
+        if not ws:
+            return ws
 
-        for w in ws.values():
-            if w < min_rank:
-                min_rank = w
-            if w > max_rank:
-                max_rank = w
+        min_rank = min(ws.values())
+        max_rank = max(ws.values())
 
         for n, w in ws.items():
-            # to unify the weights, don't *100.
-            ws[n] = (w - min_rank / 10.0) / (max_rank - min_rank / 10.0)
+            # Normalize weights
+            denom = max_rank - min_rank / 10.0
+            ws[n] = (w - min_rank / 10.0) / (denom or 1.0)
 
         return ws
 
 
 class TextRank(KeywordExtractor):
-    def __init__(self) -> None:
-        self.tokenizer = self.postokenizer = jieba_fast_dat.posseg.dt
-        self.stop_words = self.STOP_WORDS.copy()
-        self.pos_filt = frozenset(("ns", "n", "vn", "v"))
-        self.span = 5
+    """TextRank keyword extraction."""
 
-    def pairfilter(self, wp: jieba_fast_dat.posseg.pair) -> bool:
+    def __init__(self) -> None:
+        super().__init__()
+        self.tokenizer = self.postokenizer = jieba_fast_dat.posseg.dt
+        self.pos_filt = frozenset(("ns", "n", "vn", "v"))
+        self.span: int = 5
+
+    def pair_filter(self, wp: jieba_fast_dat.posseg.pair) -> bool:
+        """Filter words based on POS and stop words."""
         return (
             wp.flag in self.pos_filt
             and len(wp.word.strip()) >= 2
             and wp.word.lower() not in self.stop_words
         )
 
+    pairfilter = pair_filter  # Legacy alias
+
     def textrank(
         self,
         sentence: str,
         topK: int | None = 20,
         withWeight: bool = False,
-        allowPOS: tuple[str, ...] = ("ns", "n", "vn", "v"),
+        allowPOS: Collection[str] = ("ns", "n", "vn", "v"),
         withFlag: bool = False,
     ) -> list[Any]:
         """
         Extract keywords from sentence using TextRank algorithm.
-        Parameter:
-            - topK: return how many top keywords. `None` for all possible words.
-            - withWeight: if True, return a list of (word, weight);
-                          if False, return a list of words.
-            - allowPOS: the allowed POS list eg. ['ns', 'n', 'vn', 'v'].
-                        if the POS of w is not in this list, it will be filtered.
-            - withFlag: if True, return a list of pair(word, weight) like posseg.cut
-                        if False, return a list of words
+
+        Args:
+            sentence: Input text.
+            topK: Return top K keywords. None for all.
+            withWeight: If True, return (word, weight) pairs.
+            allowPOS: Filter words by parts of speech.
+            withFlag: If True, return pair(word, weight).
         """
         self.pos_filt = frozenset(allowPOS)
         g = UndirectWeightedGraph()
-        cm = defaultdict(int)
+        cm: dict[tuple[Any, Any], int] = defaultdict(int)
         words = tuple(self.tokenizer.cut(sentence))
-        if words:
-            print(
-                f"DEBUG: textrank method - type of first word from "
-                f"tokenizer.cut: {type(words[0])}"
-            )
         for i, wp in enumerate(words):
-            if self.pairfilter(wp):
+            if self.pair_filter(wp):
                 for j in range(i + 1, i + self.span):
                     if j >= len(words):
                         break
-                    if not self.pairfilter(words[j]):
+                    if not self.pair_filter(words[j]):
                         continue
                     if allowPOS and withFlag:
                         cm[(wp, words[j])] += 1
@@ -108,8 +112,9 @@ class TextRank(KeywordExtractor):
                         cm[(wp.word, words[j].word)] += 1
 
         for terms, w in cm.items():
-            g.addEdge(terms[0], terms[1], w)
+            g.add_edge(terms[0], terms[1], float(w))
         nodes_rank = g.rank()
+
         if withWeight:
             tags = sorted(nodes_rank.items(), key=itemgetter(1), reverse=True)
         else:
@@ -117,7 +122,6 @@ class TextRank(KeywordExtractor):
 
         if topK:
             return tags[:topK]
-        else:
-            return tags
+        return tags
 
     extract_tags = textrank

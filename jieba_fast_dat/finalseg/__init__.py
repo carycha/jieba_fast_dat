@@ -1,9 +1,11 @@
-import pickle
-import re
 from collections.abc import Iterator
 
 import jieba_fast_dat._jieba_fast_dat_functions_py3 as _jieba_fast_dat_functions
-from jieba_fast_dat.utils import get_module_res
+from jieba_fast_dat.utils import (
+    RE_HAN_FINALSEG,
+    RE_SKIP_FINALSEG,
+    load_model_pickle,
+)
 
 MIN_FLOAT = -3.14e100
 
@@ -15,18 +17,16 @@ PrevStatus = {"B": "ES", "M": "MB", "S": "SE", "E": "BM"}
 Force_Split_Words: set[str] = set()
 
 _initialized = False
-start_P: dict[str, float] = {}
-trans_P: dict[str, dict[str, float]] = {}
-emit_P: dict[str, dict[str, float]] = {}
 
 
 def load_model() -> None:
-    global _initialized, start_P, trans_P, emit_P
+    global _initialized
     if _initialized:
         return
-    start_P = pickle.loads(get_module_res(__name__, PROB_START_P).read())
-    trans_P = pickle.loads(get_module_res(__name__, PROB_TRANS_P).read())
-    emit_P = pickle.loads(get_module_res(__name__, PROB_EMIT_P).read())
+
+    start_P = load_model_pickle(__name__, PROB_START_P)
+    trans_P = load_model_pickle(__name__, PROB_TRANS_P)
+    emit_P = load_model_pickle(__name__, PROB_EMIT_P)
 
     # Push models to C++
     _jieba_fast_dat_functions.load_finalseg_hmm_model(start_P, trans_P, emit_P)
@@ -68,17 +68,13 @@ def __cut(sentence: str) -> Iterator[str]:
     yield from words
 
 
-re_han = re.compile("([\u4e00-\u9fd5]+)")
-re_skip = re.compile("([a-zA-Z0-9]+(?:\\.\\d+)?%?)")
-
-
 def add_force_split(word: str) -> None:
     global Force_Split_Words
     Force_Split_Words.add(word)
 
 
 def cut(sentence: str) -> Iterator[str]:
-    blocks = re_han.split(sentence)
+    blocks = RE_HAN_FINALSEG.split(sentence)
     for blk_idx, blk in enumerate(blocks):
         if not blk:
             continue
@@ -89,7 +85,7 @@ def cut(sentence: str) -> Iterator[str]:
                 else:
                     yield from word
         else:
-            tmp = re_skip.split(blk)
+            tmp = RE_SKIP_FINALSEG.split(blk)
             for x in tmp:
                 if x:
                     yield x

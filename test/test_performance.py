@@ -226,10 +226,15 @@ def _run_library_tests(
     try:
         print("Measuring 3. User Dict Load (No Cache)...")
         if lib_name == "jieba_fast_dat":
-            user_cache_file = lib_module._get_user_dict_cache_paths(user_dict_path)
-            dat_cache_file = user_cache_file.with_suffix(".dat")
+            # For jieba_fast_dat, we manually invalidate the cache to measure
+            # "No Cache" time
+            from jieba_fast_dat.core.tokenizer import USER_DICT_CACHE_PREFIX
+            from jieba_fast_dat.utils import CacheManager
+
+            user_cache_file = CacheManager.get_cache_path(
+                user_dict_path, prefix=USER_DICT_CACHE_PREFIX
+            )
             user_cache_file.unlink(missing_ok=True)
-            dat_cache_file.unlink(missing_ok=True)
 
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(timeout_seconds)
@@ -449,7 +454,7 @@ def test_comprehensive_performance_comparison():
     """
     Test case that runs the full performance comparison benchmark.
     """
-    log_path = "tmp/performance_comparison.log"
+    log_path = "tmp/test_performance.log"
     # Set start method for multiprocessing if not already set
     import multiprocessing
 

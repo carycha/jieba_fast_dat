@@ -1,1 +1,3 @@
+include LICENSE
 include README.md
+recursive-include jieba_fast_dat *.txt *.p *.py *.h *.hpp *.cpp

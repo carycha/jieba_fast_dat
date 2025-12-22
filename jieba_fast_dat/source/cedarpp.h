@@ -19,7 +19,11 @@
 #include "config.h"
 #endif
 
+#if __cplusplus >= 201103L
+#define STATIC_ASSERT(e, msg) static_assert(e, #msg)
+#else
 #define STATIC_ASSERT(e, msg) typedef char msg[(e) ? 1 : -1]
+#endif
 
 namespace cedar {
   // typedefs

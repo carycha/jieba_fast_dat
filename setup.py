@@ -8,9 +8,16 @@ from setuptools import Extension, setup
 jieba_fast_dat_functions_py3 = Extension(
     "jieba_fast_dat._jieba_fast_dat_functions_py3",
     sources=[
-        "jieba_fast_dat/source/pybind_bindings.cpp"
+        "jieba_fast_dat/source/pybind_bindings.cpp",
+        "jieba_fast_dat/source/core/hmm_model.cpp",
+        "jieba_fast_dat/source/core/viterbi_engine.cpp",
+        "jieba_fast_dat/source/core/segmenter.cpp",
     ],  # Point to our new pybind11 source
-    include_dirs=[pybind11.get_include()],  # Include pybind11 headers
+    include_dirs=[
+        pybind11.get_include(),
+        "jieba_fast_dat/source",
+        "jieba_fast_dat/source/core",
+    ],  # Include pybind11 headers
     language="c++",  # Specify C++ language
     extra_compile_args=["-std=c++17"]
     + (

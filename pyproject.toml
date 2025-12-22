@@ -19,7 +19,7 @@ filterwarnings = [
 
 [project]
 name = "jieba_fast_dat"
-version = "0.57"
+version = "0.58"
 description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
 readme = "README.md"
 authors = [

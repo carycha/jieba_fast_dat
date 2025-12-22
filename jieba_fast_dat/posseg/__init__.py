@@ -1,22 +1,28 @@
-import pickle
-import re
+from __future__ import annotations
+
 from collections.abc import Iterator
-from typing import IO
 
 import jieba_fast_dat
 
 # Import new C++ function for HMM=False POS tagging
 from jieba_fast_dat._jieba_fast_dat_functions_py3 import (
-    _load_word_tag_pybind,
     _posseg_cut_DAG_cpp,
     _posseg_cut_DAG_NO_HMM_cpp,
     _posseg_cut_internal_cpp,
     pair,  # Import C++ implementation of pair
 )
 
-from .._compat import strdecode
-from ..utils import get_module_res
+from ..utils import (
+    RE_ENG_POS,
+    RE_HAN_DETAIL,
+    RE_NUM_POS,
+    RE_SKIP_DETAIL,
+    load_model_pickle,
+    strdecode,
+)
 from .viterbi import viterbi
+
+__all__ = ["POSTokenizer", "pair", "cut", "lcut", "dt"]
 
 MIN_FLOAT = -3.14e100
 
@@ -32,119 +38,67 @@ _initialized = False
 
 # Load models from .p files
 def load_model() -> None:
-    global \
-        _initialized, \
-        _start_P_dict, \
-        _trans_P_dict, \
-        _emit_P_dict, \
-        _char_state_tab_P_dict
+    global _initialized
     if _initialized:
         return
-    _start_P_dict = pickle.loads(get_module_res(__name__, PROB_START_P).read())
-    _trans_P_dict = pickle.loads(get_module_res(__name__, PROB_TRANS_P).read())
-    _emit_P_dict = pickle.loads(get_module_res(__name__, PROB_EMIT_P).read())
-    _char_state_tab_P_dict = pickle.loads(
-        get_module_res(__name__, CHAR_STATE_TAB_P).read()
-    )
 
-    jieba_fast_dat.load_hmm_model(
-        _start_P_dict, _trans_P_dict, _emit_P_dict, _char_state_tab_P_dict
-    )
+    # Load and deserialize models
+    start_p = load_model_pickle(__name__, PROB_START_P)
+    trans_p = load_model_pickle(__name__, PROB_TRANS_P)
+    emit_p = load_model_pickle(__name__, PROB_EMIT_P)
+    char_state_tab = load_model_pickle(__name__, CHAR_STATE_TAB_P)
+
+    # Initialize C++ HMM model
+    jieba_fast_dat.load_hmm_model(start_p, trans_p, emit_p, char_state_tab)
     _initialized = True
 
 
-re_han_detail = re.compile(r"([\u4E00-\u9FD5]+)")
-re_skip_detail = re.compile(r"([\.0-9]+|[a-zA-Z0-9]+)")
-re_han_internal = re.compile(r"([\u4E00-\u9FD5a-zA-Z0-9+#&\._]+)")
-re_skip_internal = re.compile(r"(\r\n|\s)")
-
-re_eng = re.compile(r"[a-zA-Z0-9]+")
-re_num = re.compile(r"[\.0-9]+")
-
-re_eng1 = re.compile("^[a-zA-Z0-9]$", re.U)
-
-
 class POSTokenizer:
+    """
+    Tokenizer with Part-of-Speech tagging support.
+    """
+
     def __init__(self, tokenizer: jieba_fast_dat.Tokenizer | None = None) -> None:
-        self.tokenizer = tokenizer or jieba_fast_dat.Tokenizer()
-        self.word_tag_tab: dict[str, str] = {}
-        self.word_tag_tab_loaded = False
+        self.tokenizer = tokenizer or jieba_fast_dat.dt
 
     def __repr__(self) -> str:
         return f"<POSTokenizer tokenizer={self.tokenizer!r}>"
 
     def initialize(self, dictionary: str | None = None) -> None:
+        """Initialize the underlying tokenizer."""
         self.tokenizer.initialize(dictionary)
-        self.load_word_tag(self.tokenizer.get_dict_file())
-
-    def load_word_tag(self, f: str | IO[bytes]) -> None:
-        self.word_tag_tab = {}
-        file_path_to_load: str
-
-        if isinstance(f, str):
-            file_path_to_load = f
-        else:  # f is an IO[bytes] object
-            # If f is opened from get_module_res, it will have a name attribute.
-            # We prioritize getting the file path if available.
-            if (
-                hasattr(f, "name")
-                and isinstance(f.name, str)
-                and not f.name.startswith("<")
-            ):
-                file_path_to_load = f.name
-            else:
-                raise TypeError(
-                    "C++ _load_word_tag_pybind requires a file path. "
-                    "File-like objects are not directly supported for now, "
-                    "unless they have a 'name' attribute representing a file path."
-                )
-
-        # Call the C++ function to load the word tags
-        _load_word_tag_pybind(file_path_to_load, self.word_tag_tab)
-        # Sync to C++
-        self.tokenizer.dat.update_word_tag_tab(self.word_tag_tab)
-        self.word_tag_tab_loaded = True
 
     def makesure_userdict_loaded(self) -> None:
-        if self.tokenizer.user_word_tag_tab:
-            if not self.word_tag_tab_loaded:
-                self.load_word_tag(self.tokenizer.get_dict_file())
-            self.word_tag_tab.update(self.tokenizer.user_word_tag_tab)
-            # Sync to C++
-            self.tokenizer.dat.update_word_tag_tab(self.tokenizer.user_word_tag_tab)
-            self.tokenizer.user_word_tag_tab = {}
+        """Handled by Tokenizer.load_userdict."""
+        pass
 
     def __cut(self, sentence: str) -> Iterator[pair]:
         if not _initialized:
             load_model()
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
-        _prob, word_pos_tags_route = viterbi(
-            sentence
-        )  # prob is not used, replace with _prob
+        self.tokenizer.check_initialized()
+        _prob, word_pos_tags_route = viterbi(sentence)
         yield from word_pos_tags_route
 
     def __cut_detail(self, sentence: str) -> Iterator[pair]:
-        blocks = re_han_detail.split(sentence)
+        blocks = RE_HAN_DETAIL.split(sentence)
         for blk_idx, blk in enumerate(blocks):
             if not blk:
                 continue
             if blk_idx % 2 == 1:  # Matched block
                 yield from self.__cut(blk)
             else:
-                tmp = re_skip_detail.split(blk)
+                tmp = RE_SKIP_DETAIL.split(blk)
                 for x in tmp:
                     if x:
-                        if re_num.match(x):
+                        if RE_NUM_POS.match(x):
                             yield pair(x, "m")
-                        elif re_eng.match(x):
+                        elif RE_ENG_POS.match(x):
                             yield pair(x, "eng")
                         else:
                             yield pair(x, "x")
 
     def __cut_DAG_NO_HMM(self, sentence: str) -> Iterator[pair]:
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
+        self.tokenizer.check_initialized()
         result = _posseg_cut_DAG_NO_HMM_cpp(
             self.tokenizer.dat,
             sentence,
@@ -153,8 +107,7 @@ class POSTokenizer:
         yield from result
 
     def __cut_DAG(self, sentence: str) -> Iterator[pair]:
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
+        self.tokenizer.check_initialized()
         result = _posseg_cut_DAG_cpp(
             self.tokenizer.dat,
             sentence,
@@ -165,10 +118,7 @@ class POSTokenizer:
     def __cut_internal(self, sentence: str, HMM: bool = True) -> Iterator[pair]:
         if not _initialized:
             load_model()
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
-        if self.tokenizer.user_word_tag_tab:
-            self.makesure_userdict_loaded()
+        self.tokenizer.check_initialized()
         sentence = strdecode(sentence)
         result = _posseg_cut_internal_cpp(
             self.tokenizer.dat, sentence, float(self.tokenizer.total), HMM
@@ -178,10 +128,7 @@ class POSTokenizer:
     def _lcut_internal(self, sentence: str) -> list[pair]:
         if not _initialized:
             load_model()
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
-        if self.tokenizer.user_word_tag_tab:
-            self.makesure_userdict_loaded()
+        self.tokenizer.check_initialized()
         sentence = strdecode(sentence)
         return _posseg_cut_internal_cpp(
             self.tokenizer.dat, sentence, float(self.tokenizer.total), True
@@ -190,25 +137,21 @@ class POSTokenizer:
     def _lcut_internal_no_hmm(self, sentence: str) -> list[pair]:
         if not _initialized:
             load_model()
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
-        if self.tokenizer.user_word_tag_tab:
-            self.makesure_userdict_loaded()
+        self.tokenizer.check_initialized()
         sentence = strdecode(sentence)
         return _posseg_cut_internal_cpp(
             self.tokenizer.dat, sentence, float(self.tokenizer.total), False
         )
 
     def cut(self, sentence: str, HMM: bool = True) -> Iterator[pair]:
+        """Part-of-speech tagging."""
         return iter(self.lcut(sentence, HMM=HMM))
 
     def lcut(self, sentence: str, HMM: bool = True) -> list[pair]:
+        """List-based part-of-speech tagging."""
         if not _initialized:
             load_model()
-        if not self.word_tag_tab_loaded:
-            self.load_word_tag(self.tokenizer.get_dict_file())
-        if self.tokenizer.user_word_tag_tab:
-            self.makesure_userdict_loaded()
+        self.tokenizer.check_initialized()
         sentence = strdecode(sentence)
         return _posseg_cut_internal_cpp(
             self.tokenizer.dat, sentence, float(self.tokenizer.total), HMM
@@ -231,6 +174,7 @@ def _lcut_internal_no_hmm(s: str) -> list[pair]:
 
 
 def cut(sentence: str, HMM: bool = True) -> Iterator[pair]:
+    """Part-of-speech tagging global function."""
     global dt
     if jieba_fast_dat.pool is None:
         yield from dt.cut(sentence, HMM=HMM)
@@ -246,4 +190,5 @@ def cut(sentence: str, HMM: bool = True) -> Iterator[pair]:
 
 
 def lcut(sentence: str, HMM: bool = True) -> list[pair]:
+    """List-based part-of-speech tagging global function."""
     return list(cut(sentence, HMM))
