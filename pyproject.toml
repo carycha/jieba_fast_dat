@@ -1,9 +1,6 @@
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --capture=tee-sys"
-testpaths = [
-    "test",
-]
+addopts = "-ra --capture=tee-sys"
 markers = [
     "consistency: marks tests as consistency checks between jieba_fast_dat and original jieba",
     "memory: marks tests as memory-intensive (deselect with '-m \"not memory\"')",
@@ -19,7 +16,7 @@ filterwarnings = [
 
 [project]
 name = "jieba_fast_dat"
-version = "0.58"
+version = "0.59"
 description = "Use C++ and pybind11 to Speed up jieba<Chinese Words Segementation Utilities>"
 readme = "README.md"
 authors = [
@@ -132,7 +129,7 @@ typeCheckingMode = "basic" # 建議從 basic 開始，減少初期衝突
 
 # 禁用 ruff 已經處理的 Linting 規則，讓 Pyright 專注型別
 reportUnusedImport = false    # Ruff (I001, F401) 已經處理
-reportUnusedVariable = false  # Ruff (F841) 已經處理
+reportUnusedVariable = false  # Ruff (F841) 處理
 reportMissingTypeStubs = false # 除非您想嚴格要求所有第三方庫都有 Type Stub
 
 # 設置檢查範圍

@@ -1,3 +1,5 @@
+import multiprocessing
+import platform
 from collections.abc import Generator
 
 import pytest
@@ -13,6 +15,20 @@ LONG_TEXT = (
     "賴清德和柯文哲是台灣的政治人物，這句話也應該被正確地處理。"
     "此外，我們還需要測試英文和數字的混合情況，例如 Python3.9 和 COVID-19。"
 ) * 10  # Make the text even longer to give parallel processing a chance to work
+
+# Skip parallel tests on macOS when using 'spawn' start method (which is default).
+# This is because 'spawn' starts a fresh process that doesn't inherit the 
+# dynamic dictionary settings (set_dictionary) of the main process, 
+# leading to inconsistent results.
+should_skip_parallel = (
+    platform.system() == "Darwin" and 
+    multiprocessing.get_start_method() == "spawn"
+)
+
+pytestmark = pytest.mark.skipif(
+    should_skip_parallel,
+    reason="Parallel processing with 'spawn' start method on macOS does not inherit dynamic dictionary settings"
+)
 
 
 @pytest.fixture

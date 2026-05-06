@@ -1,3 +1,4 @@
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/jieba-fast-dat?period=total&units=ABBREVIATION&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/jieba-fast-dat)
 # jieba_fast_dat: 高效能中文分詞與詞性標註工具
 
 由於自己在使用時發現隨著字典的增加, 字典載入速度越來越久(甚至超過 10 秒),
@@ -14,10 +15,11 @@
 
 ## 重大差異：為了極速，我們做出一個取捨
 * **Python 版本限制**：我們擁抱現代開發！僅支持 **Python >= 3.10**。
-* **linux only**: 不再支援 windows 降低維護複雜度
+* **Platform Support**: 支援 Linux 與 macOS (Intel/Apple Silicon)。暫不支援 Windows。
 
 ## changelog
-- **pypi 累積安裝次數: 1.43k(20251222)**
+- **pypi 累積安裝次數: 3k(20260506)**
+- 20260506 **支援 macOS** 與改善 Linux GLIBC 相容性，加入 GitHub Actions 自動化建置,upgrade version to 0.59。
 - 20251222 優化快取結構, refactor c++, 大幅提昇效能, upgrade version to 0.58
 - 20251221 優化使用者字典載入, 調整整體結構更多轉入c++ , 修復 IO 邏輯, 再次提昇效能, upgrade version to 0.57
 - 20251204 強化cedar, 增加自定義字典cache機制, upgrade version to 0.56
@@ -67,7 +69,7 @@ pip install git+https://github.com/carycha/jieba_fast_dat@0.58
 ```python
 import jieba_fast_dat as jieba
 
-text = "雨要下到什麼時候？氣象署：今雨勢最猛　週日長榮馬拉松要穿雨衣"
+text = "東北季風發威！4縣市豪大雨特報「雨下整夜」　一路濕到這天"
 print("精確模式:", "/".join(jieba.cut(text)))
 print("全模式:", "/".join(jieba.cut(text, cut_all=True)))
 print("搜尋引擎模式:", "/".join(jieba.cut_for_search(text)))
@@ -78,7 +80,7 @@ print("搜尋引擎模式:", "/".join(jieba.cut_for_search(text)))
 ```python
 import jieba_fast_dat.posseg as pseg
 
-text = "雨要下到什麼時候？氣象署：今雨勢最猛　週日長榮馬拉松要穿雨衣"
+text = "東北季風發威！4縣市豪大雨特報「雨下整夜」　一路濕到這天"
 words = pseg.cut(text)
 for word, flag in words:
     print(f"{word}/{flag}")
